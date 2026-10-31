@@ -1,0 +1,59 @@
+name: CAD360 R67 Bootstrap Overlay
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-r67-overlay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate bootstrap chunks
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq -w 0 11); do
+            test -s ".r67-bootstrap/part${i}" || { echo "::error::Missing .r67-bootstrap/part${i}"; exit 1; }
+          done
+          test "$(find .r67-bootstrap -maxdepth 1 -type f -name 'part*' | wc -l)" -eq 12
+
+      - name: Rebuild and verify R67 delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .r67-bootstrap/part{00..11} | base64 --decode > /tmp/CAD360_R67_BOOTSTRAP_DELTA_MIN.tar.xz
+          echo "803d47d1e16d61caa15961fc373e7a39b1b3cc5de928291fd91287ba87bca2df  /tmp/CAD360_R67_BOOTSTRAP_DELTA_MIN.tar.xz" | sha256sum -c -
+          mkdir -p /tmp/r67-overlay
+          tar -xJf /tmp/CAD360_R67_BOOTSTRAP_DELTA_MIN.tar.xz -C /tmp/r67-overlay
+          echo "Overlay files:"
+          find /tmp/r67-overlay -type f | sort
+
+      - name: Apply R67 source overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -a --delete-excluded             --exclude '.github/workflows/***'             /tmp/r67-overlay/ ./
+          printf '%s\n'             'release=CAD360_R67'             'delta_sha256=803d47d1e16d61caa15961fc373e7a39b1b3cc5de928291fd91287ba87bca2df'             'baseline=9cab229bf784c7a3103c90b138bd7c7c3ede390f'             > .r67-overlay-applied
+          rm -rf .r67-bootstrap
+
+      - name: Commit R67 overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "CAD360 R67 CI"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No overlay changes to commit."
+            exit 0
+          fi
+          git commit -m "feat: apply CAD360 R67 hardened source overlay"
+          git push origin HEAD:main
