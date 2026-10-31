@@ -80,7 +80,7 @@ pub(super) fn run_measure(s: &mut Session, p: &Value) -> Result<Value> {
         c = c.reversed();
     }
     let pts = measure_points(&c, step);
-    let hs = place_markers(s, &pts, block.as_deref(), bool_or(p, "align", true))?;
+    let hs=place_markers(s,&pts,block.as_deref(),bool_or(p,"align",true),h)?;
     Ok(json!({ "handles": hs }))
 }
 
