@@ -1,0 +1,14 @@
+PASS | command pointcloud.planefit registered
+PASS | command pointcloud.plane3d registered
+PASS | least-squares helper present
+PASS | planefit RMS output
+PASS | plane3d creates Face3d
+PASS | plane3d xdata tag
+PASS | Point Cloud UI Fit plane button
+PASS | Point Cloud UI Create fit plane button
+PASS | R44 source test exists
+PASS | capability metadata updated
+PASS | 2D/3D gap audit exists
+PASS | R43 baseline source preserved
+
+TOTAL 12/12 PASS

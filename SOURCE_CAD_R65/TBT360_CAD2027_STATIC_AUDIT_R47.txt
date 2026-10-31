@@ -1,0 +1,32 @@
+R47 STATIC SOURCE AUDIT: 28/28 PASS
+command_literals=547 aliases=323 alias_collisions=0
+NOTE: static/source audit only; no Rust/Windows compiler available.
+
+PASS: command pointcloud.icprigid
+PASS: command pointcloud.octreebuild
+PASS: command hiddenline3d
+PASS: command surfacepatch
+PASS: command solidaudit3d
+PASS: command pbrmaterial
+PASS: command dim3d.faceassoc
+PASS: command dim3d.facerefresh
+PASS: rigid ICP Horn fit
+PASS: octree persistent xdata
+PASS: face edge assoc metadata
+PASS: hiddenline native 2D output
+PASS: solid audit manifold
+PASS: surface patch faceted
+PASS: PBR metadata
+PASS: polygon xclip accepts 3+
+PASS: renderer consumes all polygon points
+PASS: array auto command
+PASS: array auto execution hook
+PASS: point cloud manager rigid ICP
+PASS: modeling UI hiddenline
+PASS: modeling UI kernel foundations
+PASS: drafting UI dynamic author
+PASS: drafting UI annotation table
+PASS: drafting UI array auto
+PASS: unique command ids
+PASS: zero alias collisions
+PASS: balanced draw braces

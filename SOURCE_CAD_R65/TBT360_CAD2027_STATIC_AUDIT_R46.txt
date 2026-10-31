@@ -1,0 +1,26 @@
+R46 STATIC AUDIT — 19/19 PASS
+
+[PASS] DIM3D.ASSOC registered
+[PASS] DIM3D.REFRESH registered
+[PASS] Associative XData persisted
+[PASS] Assoc refresh rebuild path
+[PASS] Octree command registered
+[PASS] Octree recursion implemented
+[PASS] Octree manager UI
+[PASS] Assoc dimension Tool Sets UI
+[PASS] Assoc refresh Tool Sets UI
+[PASS] R45 grid retained
+[PASS] R45 classify retained
+[PASS] R45 ICP retained
+[PASS] R45 crease retained
+[PASS] R45 array refresh retained
+[PASS] Capability report updated
+[PASS] R46 assoc test exists
+[PASS] R46 octree test exists
+[PASS] Command names unique
+[PASS] No command/alias collisions
+
+commands=538
+aliases=319
+alias_collisions=0
+Compiler/runtime boundary: cargo/rustc unavailable; this is source/static verification only.

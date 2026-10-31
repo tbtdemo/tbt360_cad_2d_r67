@@ -1,0 +1,4 @@
+commands=547
+aliases=323
+alias_collisions=0
+3d_kernel_truth=faceted foundations; ACIS/BRep/NURBS not claimed

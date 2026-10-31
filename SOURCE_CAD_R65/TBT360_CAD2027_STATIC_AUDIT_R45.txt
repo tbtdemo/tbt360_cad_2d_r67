@@ -1,0 +1,20 @@
+PASS: ICP command registered
+PASS: ICP can apply native POINT translation
+PASS: Grid index command registered
+PASS: Persistent point classification
+PASS: Facet crease extraction command
+PASS: Refresh-all path arrays command
+PASS: Point Cloud Manager exposes ICP
+PASS: Point Cloud Manager exposes grid index
+PASS: Point Cloud Manager exposes classification
+PASS: Tool Sets exposes facet crease
+PASS: Tool Sets exposes array refresh-all
+PASS: R45 point-cloud unit test source
+PASS: R45 facet unit test source
+PASS: MLEADEREDIT no longer aliases MLEDIT
+PASS: draw.rs brace balance
+PASS: managers.rs brace balance
+PASS: patharray.rs brace balance
+
+summary=17/17 PASS
+boundary=STATIC SOURCE AUDIT ONLY; Rust/Cargo/Windows compiler unavailable in this environment.

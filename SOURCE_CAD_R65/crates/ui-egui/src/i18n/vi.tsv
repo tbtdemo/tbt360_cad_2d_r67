@@ -1,0 +1,210 @@
+# Vietnamese catalog for CAD 2D - TBT 360.
+# Format: context<TAB>English source<TAB>Vietnamese translation.
+	About	Giới thiệu
+	About CADCraft	Giới thiệu CAD 2D - TBT 360
+	About CAD 2D - TBT 360	Giới thiệu CAD 2D - TBT 360
+	About CAD 360 Viet Nam - TBT	Giới thiệu CAD 360 Việt Nam - TBT
+	Native CAD design and drafting application written in Rust.	Ứng dụng thiết kế và triển khai bản vẽ CAD native viết bằng Rust.
+	CAD 360 Viet Nam by TBT Viet Nam, developed on the open-source CADCraft foundation while preserving the applicable license obligations.	Sản phẩm CAD 360 Việt Nam của TBT Việt Nam; phát triển trên nền mã nguồn mở CADCraft và giữ nguyên các nghĩa vụ giấy phép tương ứng.
+	All	Tất cả
+	All files	Tất cả tệp
+	Angle	Góc
+	Apply	Áp dụng
+	Arc	Cung tròn
+	Area	Diện tích
+	Array	Mảng
+	Attach	Đính kèm
+	Audit	Kiểm tra bản vẽ
+	Auto (system language)	Tự động (ngôn ngữ hệ thống)
+	Auto Constrain	Tự động ràng buộc
+	Block	Khối
+	Block Editor	Trình chỉnh sửa khối
+	Blocks	Các khối
+	Bold	Đậm
+	Boundary	Biên
+	Break	Ngắt
+	Cancel	Hủy
+	Cartesian (x, y)	Đề-các (x, y)
+	Center	Tâm
+	Center Line	Đường tâm
+	Change Space	Đổi không gian
+	Circle	Đường tròn
+	Clear	Xóa
+	Close	Đóng
+	Close All	Đóng tất cả
+	Color	Màu
+	Color Index	Chỉ số màu
+	Command History	Lịch sử lệnh
+	Command Line	Dòng lệnh
+	Copy History	Sao chép lịch sử
+	Diagnostic Log	Nhật ký chẩn đoán
+	Command Log	Nhật ký lệnh
+	Recent Commands	Lệnh gần đây
+	Lines of Command History	Số dòng lịch sử lệnh
+	Command Reference	Tham chiếu lệnh
+	Continue	Tiếp tục
+	Copy	Sao chép
+	Create Block	Tạo khối
+	Current layer	Lớp hiện hành
+	Current selection	Lựa chọn hiện tại
+	Cut	Cắt
+	Dark	Tối
+	Default	Mặc định
+	Default Save Format	Định dạng lưu mặc định
+	Delete	Xóa
+	Delete Layer	Xóa lớp
+	Description	Mô tả
+	Diameter	Đường kính
+	Dimension	Kích thước
+	Dimension Style	Kiểu kích thước
+	Distance	Khoảng cách
+	Drawing	Bản vẽ
+	Drawing (DXF)	Bản vẽ (DXF)
+	Drawing (DWG)	Bản vẽ (DWG)
+	Drawing Template (DWT)	Mẫu bản vẽ (DWT)
+	Edit	Chỉnh sửa
+	Ellipse	Elip
+	Erase	Xóa đối tượng
+	Export	Xuất
+	File	Tệp
+	File name	Tên tệp
+	File Save Error	Lỗi lưu tệp
+	Fillet	Bo góc
+	Font	Phông chữ
+	Grid	Lưới
+	Hatch	Mặt cắt
+	Help	Trợ giúp
+	Hide CADCraft	Ẩn CAD 2D - TBT 360
+	Home	Trang chủ
+	Import	Nhập
+	Insert	Chèn
+	Intersection	Giao điểm
+	Language	Ngôn ngữ
+	Layer	Lớp
+	Layer Properties	Thuộc tính lớp
+	Line	Đường thẳng
+	Lineweight	Độ dày nét
+	Lock	Khóa
+	Manage Layers	Quản lý lớp
+	Measure	Đo
+	Mirror	Đối xứng
+	Model	Mô hình
+	Move	Di chuyển
+	New Drawing	Bản vẽ mới
+	New Drawing...	Bản vẽ mới...
+	No	Không
+	OK	Đồng ý
+	Offset	Song song
+	Open	Mở
+	Open...	Mở...
+	Options	Tùy chọn
+	Ortho	Trực giao
+	Pan	Di chuyển khung nhìn
+	Paste	Dán
+	PDF	PDF
+	Pick a point	Chọn một điểm
+	Plot	In bản vẽ
+	Polyline	Đa tuyến
+	Properties	Thuộc tính
+	Print	In
+	Radius	Bán kính
+	Redo	Làm lại
+	Refresh	Làm mới
+	Rename	Đổi tên
+	Rotate	Xoay
+	Save	Lưu
+	Save As...	Lưu thành...
+	Scale	Tỷ lệ
+	Select	Chọn
+	Select All	Chọn tất cả
+	Settings...	Cài đặt...
+	Snap	Bắt điểm
+	Solid	Đặc
+	Spline	Đường cong
+	Status Bar	Thanh trạng thái
+	Stretch	Kéo giãn
+	Style	Kiểu
+	SVG	SVG
+	Table	Bảng
+	Text	Văn bản
+	Text Style	Kiểu văn bản
+	Tools	Công cụ
+	Trim	Cắt xén
+	Undo	Hoàn tác
+	Unlock	Mở khóa
+	View	Xem
+	Viewport	Khung nhìn
+	Window	Cửa sổ
+	Yes	Có
+	Zoom	Thu phóng
+	Zoom Extents	Thu phóng toàn bộ
+	3D	3D
+	Open 3D Workspace	Mở không gian làm việc 3D
+	Create 3D Demo Scene	Tạo cảnh demo 3D
+	3D Workspace	Không gian 3D
+
+	3D Control Center	Trung tâm điều khiển 3D
+	Create 2D QA Demo	Tạo cảnh kiểm tra 2D
+	Create Architectural 3D Demo	Tạo demo kiến trúc 3D
+	Architectural 3D Demo	Demo kiến trúc 3D
+	Create Annotated 2D Demo	Tạo demo 2D có kích thước và ghi chú
+	Showcase	Trình diễn
+	Create 3D QA Showcase	Tạo cảnh kiểm thử 3D tổng hợp
+	3D QA Showcase	Kiểm thử 3D tổng hợp
+	3D Primitive Demo	Demo khối 3D
+	2D QA Demo	Demo kiểm thử 2D
+	Annotated 2D Demo	Demo 2D có kích thước và ghi chú
+
+	Create 3D House Demo	Tạo demo nhà 3D
+	3D House Demo	Demo nhà 3D
+	Create 2D Floor Plan Demo	Tạo demo mặt bằng 2D
+	2D Floor Plan Demo	Demo mặt bằng 2D
+
+	Create 2D Section Demo	Tạo demo mặt cắt 2D
+	2D Section Demo	Demo mặt cắt 2D
+	Create 3D Structure + MEP Demo	Tạo demo kết cấu + MEP 3D
+	3D Structure + MEP Demo	Demo kết cấu + MEP 3D
+	3D Structure + MEP	Kết cấu + MEP 3D
+
+	Create 2D Elevation Demo	Tạo demo mặt đứng 2D
+	2D Elevation Demo	Demo mặt đứng 2D
+	Create 2D MEP Plan Demo	Tạo demo mặt bằng MEP 2D
+	2D MEP Plan Demo	Demo mặt bằng MEP 2D
+	Create 3D Site + Landscape Demo	Tạo demo khu đất + cảnh quan 3D
+	3D Site + Landscape Demo	Demo khu đất + cảnh quan 3D
+	3D Site + Landscape	Khu đất + cảnh quan 3D
+
+	Create 2D Structural Plan Demo	Tạo demo mặt bằng kết cấu 2D
+	2D Structural Plan Demo	Demo mặt bằng kết cấu 2D
+	Create 2D Ceiling + Lighting Plan Demo	Tạo demo mặt bằng trần + chiếu sáng 2D
+	2D Ceiling + Lighting Plan Demo	Demo mặt bằng trần + chiếu sáng 2D
+	Create 3D Interior + Lighting Demo	Tạo demo nội thất + chiếu sáng 3D
+	3D Interior + Lighting Demo	Demo nội thất + chiếu sáng 3D
+	2D Structural Plan	Mặt bằng kết cấu 2D
+	2D Ceiling + Lighting	Trần + chiếu sáng 2D
+	3D Interior + Lighting	Nội thất + chiếu sáng 3D
+
+	Create 2D Plumbing + Fire Plan Demo	Tạo demo mặt bằng cấp thoát nước + PCCC 2D
+	2D Plumbing + Fire Plan Demo	Demo cấp thoát nước + PCCC 2D
+	Create Door + Window Schedule Demo	Tạo demo bảng thống kê cửa đi + cửa sổ
+	Door + Window Schedule Demo	Demo bảng thống kê cửa đi + cửa sổ
+	Create 3D Facade + Roof Detail Demo	Tạo demo mặt đứng + chi tiết mái 3D
+	3D Facade + Roof Detail Demo	Demo mặt đứng + chi tiết mái 3D
+	2D Plumbing + Fire	Cấp thoát nước + PCCC 2D
+	Door + Window Schedule	Bảng thống kê cửa
+	3D Facade + Roof	Mặt đứng + mái 3D
+	Tool Sets	Bộ công cụ
+	Layers	Lớp
+	Start	Bắt đầu
+	Format	Định dạng
+	Modify	Hiệu chỉnh
+	Top	Mặt bằng
+	Wireframe	Khung dây
+	Takeoff	Đo bóc
+	Interface Language	Ngôn ngữ giao diện
+	Drafting Settings...	Thiết lập vẽ...
+	Quick Select...	Chọn nhanh...
+	Layer Properties Manager	Quản lý lớp
+	Clear Command History	Xóa lịch sử lệnh
+	Hide Palettes	Ẩn bảng công cụ
+	Reset Palettes	Đặt lại bảng công cụ

@@ -1,0 +1,36 @@
+from pathlib import Path
+root=Path(__file__).resolve().parents[1]
+draw=(root/'crates/engine/src/cmd/draw.rs').read_text(errors='ignore')
+managers=(root/'crates/ui-egui/src/managers.rs').read_text(errors='ignore')
+palettes=(root/'crates/ui-egui/src/palettes.rs').read_text(errors='ignore')
+blocks=(root/'crates/engine/src/cmd/blocks.rs').read_text(errors='ignore')
+inquiry=(root/'crates/engine/src/cmd/inquiry.rs').read_text(errors='ignore')
+checks=[]
+def ck(n,c): checks.append((n,bool(c)))
+for cmd in ['pointcloud.nearest','facettransform3d']:
+    ck(cmd+' registered', f'CommandSpec::new("{cmd}"' in draw)
+for fn in ['run_pointcloud_nearest','run_facettransform3d','facet_selection_center','rotate_about_axis']:
+    ck(fn+' implementation', f'fn {fn}(' in draw)
+ck('nearest is read only', '"readOnly":true' in draw and 'run_pointcloud_nearest' in draw)
+ck('nearest supports visibleOnly', 'visible_only' in draw and 'maxResults' in draw)
+ck('facet transform move', '"move" =>' in draw and 'q + d' in draw)
+ck('facet transform scale', '"scale" =>' in draw and '(q - origin) * f' in draw)
+ck('facet transform rotate', '"rotate" =>' in draw and 'rotate_about_axis' in draw)
+ck('facet transform persistent', '"persistent":true' in draw and 'facettransform3d' in draw)
+ck('facet transform dialog route', 'app.ui.dialog = Some("facettransform3d".into())' in managers)
+ck('facet transform dialog exists', 'fn facet_transform_dialog' in managers)
+ck('point cloud nearest UI', 'Nearest query XYZ' in managers and 'pointcloud.nearest' in managers)
+ck('dynamic block dialog route', 'app.ui.dialog = Some("dynamicblock".into())' in managers)
+ck('dynamic block dialog exists', 'fn dynamic_block_dialog' in managers)
+for cmd in ['blocks.dynamic','blocks.dynamic.validate','blocks.reference','blocks.reference.grips']:
+    ck('dynamic block engine '+cmd, f'CommandSpec::new("{cmd}"' in blocks)
+    ck('dynamic block UI '+cmd, f'"{cmd}"' in palettes)
+ck('R26 nearest regression', 'pointcloud_nearest_returns_ranked_read_only_results' in draw)
+ck('R26 transform regression', 'facet_transform_moves_scales_and_rotates_native_faces' in draw)
+ck('capability nearest query', 'nearest-point query' in inquiry)
+ck('capability facet transform', 'axis-rotate transform' in inquiry)
+ck('ACIS still false', '"acis": false' in inquiry)
+passed=sum(v for _,v in checks)
+for n,v in checks: print(('PASS' if v else 'FAIL')+' | '+n)
+print(f'\nSUMMARY {passed}/{len(checks)} PASS')
+raise SystemExit(0 if passed==len(checks) else 1)
