@@ -1,0 +1,111 @@
+name: Build CAD360 R67 Installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-r67-installer.yml'
+      - '.r67-installer-trigger'
+
+permissions:
+  contents: read
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust 1.95
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --target x86_64-pc-windows-msvc
+          rustup default 1.95.0
+          rustc -V
+          cargo -V
+
+      - name: Build CAD360 GUI
+        shell: pwsh
+        env:
+          CADCRAFT_REQUIRE_WINRES: "0"
+        run: |
+          cargo build --locked --release --target x86_64-pc-windows-msvc -p cadcraft
+
+      - name: Prepare package files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path package | Out-Null
+          Copy-Item "target\x86_64-pc-windows-msvc\release\cadcraft.exe" "package\CAD360.exe" -Force
+          if (Test-Path "target\x86_64-pc-windows-msvc\release\*.dll") {
+            Copy-Item "target\x86_64-pc-windows-msvc\release\*.dll" "package\" -Force
+          }
+          Get-ChildItem package
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+
+      - name: Create installer script
+        shell: pwsh
+        run: |
+          @'
+          #define MyAppName "CAD 360 Viet Nam - TBT"
+          #define MyAppVersion "0.67.0"
+          #define MyAppPublisher "TBT Viet Nam"
+          #define MyAppExeName "CAD360.exe"
+
+          [Setup]
+          AppId={{9DABCC44-42C4-4F4A-8B0F-67CAD3600067}
+          AppName={#MyAppName}
+          AppVersion={#MyAppVersion}
+          AppPublisher={#MyAppPublisher}
+          DefaultDirName={autopf}\CAD360
+          DefaultGroupName=CAD 360 Viet Nam - TBT
+          DisableProgramGroupPage=yes
+          OutputDir=installer-output
+          OutputBaseFilename=CAD360_R67_Setup
+          Compression=lzma2
+          SolidCompression=yes
+          WizardStyle=modern
+          ArchitecturesAllowed=x64compatible
+          ArchitecturesInstallIn64BitMode=x64compatible
+          UninstallDisplayIcon={app}\{#MyAppExeName}
+
+          [Files]
+          Source: "package\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+          [Icons]
+          Name: "{autoprograms}\CAD 360 Viet Nam - TBT"; Filename: "{app}\{#MyAppExeName}"
+          Name: "{autodesktop}\CAD 360 Viet Nam - TBT"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+
+          [Tasks]
+          Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
+
+          [Run]
+          Filename: "{app}\{#MyAppExeName}"; Description: "Launch CAD 360 Viet Nam - TBT"; Flags: nowait postinstall skipifsilent
+          '@ | Set-Content -Path "CAD360_R67.iss" -Encoding UTF8
+
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { throw "ISCC.exe not found at $iscc" }
+          & $iscc "CAD360_R67.iss"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem "installer-output\*.exe"
+          Get-FileHash "installer-output\CAD360_R67_Setup.exe" -Algorithm SHA256
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_R67_Setup
+          path: SOURCE_CAD_R65/installer-output/CAD360_R67_Setup.exe
+          if-no-files-found: error
+          retention-days: 30
