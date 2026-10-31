@@ -2,7 +2,8 @@ name: Bootstrap CAD360 R67 Baseline
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -10,7 +11,6 @@ permissions:
 
 jobs:
   bootstrap:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.head_commit.message != 'chore: bootstrap baseline source' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout destination
@@ -19,12 +19,13 @@ jobs:
           fetch-depth: 0
 
       - name: Clone existing CAD360 baseline
+        shell: bash
         run: git clone --depth 1 https://github.com/tbtdemo/tbt360_cad_2d.git /tmp/cad360-old
 
-      - name: Import baseline without large reference/evidence binaries
+      - name: Import baseline source
         shell: bash
         run: |
-          rsync -a             --exclude='.git/'             --exclude='CAD_ORIGINAL_014_REFERENCE/'             --exclude='QTO_R134_WEB_WORKSPACE/'             /tmp/cad360-old/ ./
+          rsync -a --exclude='.git/' --exclude='CAD_ORIGINAL_014_REFERENCE/' --exclude='QTO_R134_WEB_WORKSPACE/' /tmp/cad360-old/ ./
           rm -f .github/workflows/bootstrap-baseline.yml
           git status --short
 
@@ -34,9 +35,5 @@ jobs:
           git config user.name "CAD360 R67 Bootstrap"
           git config user.email "actions@users.noreply.github.com"
           git add -A
-          if git diff --cached --quiet; then
-            echo "No baseline changes to commit."
-            exit 0
-          fi
           git commit -m "chore: bootstrap baseline source"
           git push origin HEAD:main
