@@ -2,6 +2,9 @@ name: CAD360 R67 Bootstrap Overlay
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.r67-bootstrap/TRIGGER'
 
 permissions:
   contents: write
