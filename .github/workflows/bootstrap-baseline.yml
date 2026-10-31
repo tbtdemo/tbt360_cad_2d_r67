@@ -18,18 +18,31 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Stop when baseline is already imported
+        id: guard
+        shell: bash
+        run: |
+          if [ -f .r67-baseline-imported ]; then
+            echo "done=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "done=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Clone existing CAD360 baseline
+        if: steps.guard.outputs.done != 'true'
         shell: bash
         run: git clone --depth 1 https://github.com/tbtdemo/tbt360_cad_2d.git /tmp/cad360-old
 
-      - name: Import baseline source
+      - name: Import baseline source without workflow files or large references
+        if: steps.guard.outputs.done != 'true'
         shell: bash
         run: |
-          rsync -a --exclude='.git/' --exclude='CAD_ORIGINAL_014_REFERENCE/' --exclude='QTO_R134_WEB_WORKSPACE/' /tmp/cad360-old/ ./
-          rm -f .github/workflows/bootstrap-baseline.yml
+          rsync -a --exclude='.git/' --exclude='.github/workflows/' --exclude='CAD_ORIGINAL_014_REFERENCE/' --exclude='QTO_R134_WEB_WORKSPACE/' /tmp/cad360-old/ ./
+          printf '%s\n' 'baseline=tbtdemo/tbt360_cad_2d@9cab229bf784c7a3103c90b138bd7c7c3ede390f' > .r67-baseline-imported
           git status --short
 
       - name: Commit imported baseline
+        if: steps.guard.outputs.done != 'true'
         shell: bash
         run: |
           git config user.name "CAD360 R67 Bootstrap"
