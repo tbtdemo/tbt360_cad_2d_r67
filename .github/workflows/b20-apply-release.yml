@@ -1,0 +1,69 @@
+name: Apply CAD360 0.69.0 Batch 20 Release
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/b20-apply-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  apply-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reassemble and verify payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .b20v3/chunk00 .b20v3/chunk01 .b20v3/chunk02 .b20v3/chunk03 .b20v3/chunk04 .b20v3/chunk05 .b20v3/chunk06 .b20v3/chunk07 .b20v3/chunk08 .b20v3/chunk09 .b20v3/chunk10 > /tmp/b20.b64
+          test "$(wc -c < /tmp/b20.b64)" -eq 91100
+          base64 -d /tmp/b20.b64 > /tmp/CAD360_R69_B20_CHANGED_FILES.tar.gz
+          echo "551800da54deeef77f5699f17e538a6885aadf81914196793efead8767e201f2  /tmp/CAD360_R69_B20_CHANGED_FILES.tar.gz" | sha256sum -c -
+          tar -tzf /tmp/CAD360_R69_B20_CHANGED_FILES.tar.gz
+          tar -xzf /tmp/CAD360_R69_B20_CHANGED_FILES.tar.gz -C .
+
+      - name: Validate release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 SOURCE_CAD_R65/scripts/r67_static_gate.py
+          grep -q 'CAD360_RELEASE_VERSION = "0.69.0"' SOURCE_CAD_R65/.cargo/config.toml
+          grep -q '0.69.0' SOURCE_CAD_R65/apps/cadcraft/build.rs
+          grep -q 'MyAppVersion "0.69.0"' installer/TBT360_CAD_R65.iss
+          grep -q '0.69.0' .github/workflows/parallel-r66.yml
+          ! grep -q 'is_some_and\|is_none_or' SOURCE_CAD_R65/apps/cadcraft/src/bim_collab.rs
+
+      - name: Commit CAD360 0.69.0 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "CAD360 Release Bot"
+          git config user.email "actions@github.com"
+          git add SOURCE_CAD_R65/.cargo/config.toml
+          git add SOURCE_CAD_R65/apps/cadcraft/build.rs
+          git add SOURCE_CAD_R65/apps/cadcraft/src/main.rs
+          git add SOURCE_CAD_R65/apps/cadcraft/src/bim_collab.rs
+          git add SOURCE_CAD_R65/scripts/r67_static_gate.py
+          git add installer/TBT360_CAD_R65.iss
+          git add .github/workflows/parallel-r66.yml
+          git add SHA256SUMS.txt
+          git rm -rf --ignore-unmatch .b10-release .b20-release .b20v2 .b20v3
+          git rm --ignore-unmatch .github/workflows/b20-apply-release.yml
+          git commit -m "release: CAD360 0.69.0 batch 20 BIM coordination"
+          git push origin HEAD:main
+
+      - name: Trigger Windows installer build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run parallel-r66.yml --ref main
