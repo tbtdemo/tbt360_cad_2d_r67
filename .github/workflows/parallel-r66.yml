@@ -1,0 +1,396 @@
+name: CAD360 R67 Unified Single App CI
+
+permissions:
+  contents: read
+
+env:
+  CAD360_RUST_TOOLCHAIN: "1.95.0"
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  CADCRAFT_REQUIRE_WINRES: "1"
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main, integration/cad360-unified-r67]
+    paths:
+      - 'SOURCE_CAD_R65/**'
+      - 'installer/**'
+      - '.github/workflows/parallel-r66.yml'
+  push:
+    branches:
+      - 'integration/cad360-unified-r67'
+      - 'main'
+    paths:
+      - 'SOURCE_CAD_R65/**'
+      - 'installer/**'
+      - '.github/workflows/parallel-r66.yml'
+
+concurrency:
+  group: cad360-r67-unified-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lane-1-core:
+    name: "1 - Core compile"
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - name: R67 static preflight gate
+        run: python scripts/r67_static_gate.py
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - name: Verify pinned Rust toolchain and workspace MSRV
+        shell: pwsh
+        run: |
+          $rustc = rustc --version
+          Write-Host $rustc
+          if ($rustc -notmatch "rustc 1\.95\.") { throw "Expected Rust 1.95.x, got: $rustc" }
+          $meta = cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
+          $bad = @($meta.packages | Where-Object { $_.rust_version -and ([version]$_.rust_version -gt [version]"1.95.0") })
+          if ($bad.Count -gt 0) { throw "Package MSRV exceeds CI toolchain: $($bad.name -join ' , ')" }
+          Write-Host "Pinned Rust/MSRV preflight passed"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - run: cargo metadata --locked --no-deps --format-version 1 > $null
+      - name: Verify R67 release version is consistent across Cargo environment and installer
+        shell: pwsh
+        working-directory: .
+        run: |
+          $config = Get-Content "SOURCE_CAD_R65/.cargo/config.toml" -Raw
+          $iss = Get-Content "installer/TBT360_CAD_R65.iss" -Raw
+          if ($config -notmatch 'CAD360_RELEASE_VERSION\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"') { throw "CAD360_RELEASE_VERSION missing from .cargo/config.toml" }
+          $release = $matches[1]
+          if ($iss -notmatch '#define\s+MyAppVersion\s+"([0-9]+\.[0-9]+\.[0-9]+)"') { throw "MyAppVersion missing from installer" }
+          $installerVersion = $matches[1]
+          if ($release -ne $installerVersion) { throw "Release version mismatch: Cargo=$release Installer=$installerVersion" }
+          if ($release -ne "0.68.0") { throw "R67 must publish version 0.67.0, found $release" }
+          Write-Host "R67 release version passed: $release"
+      - name: Verify six-lane gate is the only Windows Setup publisher
+        shell: pwsh
+        working-directory: .
+        run: |
+          $current = [IO.Path]::GetFullPath(".github/workflows/parallel-r66.yml")
+          $violations = @()
+          Get-ChildItem ".github/workflows" -Filter "*.yml" | ForEach-Object {
+            if ([IO.Path]::GetFullPath($_.FullName) -eq $current) { return }
+            $text = Get-Content $_.FullName -Raw
+            if ($text -match 'ISCC\.exe|CAD360_VietNam_TBT_Setup\.exe|cargo build --release.*-p cadcraft') {
+              $violations += $_.Name
+            }
+          }
+          if ($violations.Count -gt 0) { throw "Ungated Windows release path found in: $($violations -join ', ')" }
+          Write-Host "Only the six-lane R67 workflow can publish Windows binaries"
+      - name: Verify source checksum manifest is current
+        shell: pwsh
+        working-directory: .
+        run: |
+          Get-Content "SHA256SUMS.txt" | Where-Object { $_.Trim() } | ForEach-Object {
+            if ($_ -notmatch '^([0-9a-fA-F]{64})\s+(.+)$') { throw "Invalid SHA256SUMS line: $_" }
+            $expected = $matches[1].ToUpperInvariant()
+            $path = $matches[2].Trim().TrimStart('*')
+            if (!(Test-Path -LiteralPath $path)) { throw "SHA256SUMS path missing: $path" }
+            $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+            if ($actual -ne $expected) { throw "SHA256SUMS mismatch: $path" }
+          }
+          Write-Host "Source checksum manifest passed"
+      - run: cargo check --locked -p cadcraft-engine -p cadcraft-doc -p cadcraft-render
+
+  lane-2-io-xref:
+    name: "2 - IO and XREF"
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - run: cargo test --locked -p cadcraft-engine --test xref -- --nocapture
+      - name: Test XDATA identity through engine file operations
+        run: "cargo test --locked -p cadcraft-engine --test it xdata_follows_entity:: -- --nocapture"
+      - name: Test INSERT file identity and Undo/Redo
+        run: cargo test --locked -p cadcraft-engine --test insert_file -- --nocapture
+      - run: cargo test --locked -p cadcraft-io --test it -- --nocapture
+
+  lane-3-ui:
+    name: "3 - UI and Vietnamese"
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - run: cargo test --locked -p cadcraft-ui-egui --lib menus::tests -- --nocapture
+      - run: cargo test --locked -p cadcraft-ui-egui --lib layers::tests -- --nocapture
+      - run: cargo test --locked -p cadcraft-ui-egui --lib palettes::tests -- --nocapture
+      - run: cargo test --locked -p cadcraft-ui-egui --lib i18n::tests -- --nocapture
+      - name: Compile the full UI nested integration harness without running GPU/native tests twice
+        run: cargo test --locked -p cadcraft-ui-egui --test it --no-run
+      - name: Verify product title
+        shell: pwsh
+        run: |
+          $main = Get-Content "apps/cadcraft/src/main.rs" -Raw
+          if ($main -notmatch "CAD 360 Việt Nam - TBT") { throw "CAD360 product title missing" }
+      - name: Verify CAD-only workspace and direct drawing QTO integration
+        shell: pwsh
+        run: |
+          $main = Get-Content "apps/cadcraft/src/main.rs" -Raw
+          if (!$main.Contains("mod takeoff;") -or !$main.Contains("takeoff::panel(ui, &self.cad, &mut self.takeoff_state, &qto_scope)")) { throw "Live native CAD QTO tool missing" }
+          if (!$main.Contains("self.cad.ui(ui);") -or !$main.Contains("self.cad.ui(&mut columns[0]);")) { throw "Native CAD drawing workspace missing" }
+          foreach ($legacy in @("MainTab::Pdf", "MainTab::Model3d", "MainTab::BimCollab", "bim_collab::panel(ui)", "mod bim_collab;", "bim_collab_state")) {
+            if ($main.Contains($legacy)) { throw "Non-CAD standalone/runtime dependency reintroduced: $legacy" }
+          }
+          $qto = Get-Content "apps/cadcraft/src/takeoff.rs" -Raw
+          if ($qto.Contains("crate::bim_collab::")) { throw "QTO must remain independent from BIM collaboration runtime" }
+          Write-Host "R67 CAD-first user workflow passed"
+
+  lane-4-cad-qto:
+    name: "4 - CAD QTO and object tools"
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - run: cargo test --locked -p cadcraft --bin cadcraft takeoff::tests -- --nocapture
+      - run: cargo test --locked -p cadcraft-engine --lib properties -- --nocapture
+      - run: cargo test --locked -p cadcraft-engine --lib layer -- --nocapture
+      - run: cargo test --locked -p cadcraft-engine --lib select -- --nocapture
+
+  lane-5-regression:
+    name: "5 - Engine regression"
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - run: cargo test --locked -p cadcraft-engine --test undo_control -- --nocapture
+      - name: Verify per-thread IO hooks used by parallel tests
+        run: cargo test --locked -p cadcraft-engine --test io_hooks_thread_local -- --nocapture
+      - name: Test Clipboard in its own integration target
+        run: cargo test --locked -p cadcraft-engine --test clipboard -- --nocapture
+      - name: Test IMPORT identity and Undo/Redo
+        run: cargo test --locked -p cadcraft-engine --lib cmd::exchange::tests::import_remaps_internal_xdata_and_redo_preserves_destination_identity -- --nocapture
+      - run: "cargo test --locked -p cadcraft-engine --test it assoc_array:: -- --nocapture"
+
+  lane-6-workspace:
+    name: "6 - Full workspace"
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Compile every workspace target
+        run: cargo check --workspace --all-targets --locked
+      - name: Compile Windows desktop host and CLI test targets
+        run: cargo test --locked -p cadcraft -p cadcraft-cli -p cadcraft-mcp --all-targets --no-run
+      - name: Compile cadcraft-web native stub and tests on Windows
+        run: cargo test --locked -p cadcraft-web --all-targets --no-run
+      - name: Compile every workspace test/target harness before execution
+        run: cargo test --workspace --all-targets --locked --no-run
+      - name: Run full workspace tests
+        run: cargo test --workspace --locked --no-fail-fast
+
+  release-gate:
+    name: "7 - Six-lane release gate"
+    needs: [lane-1-core, lane-2-io-xref, lane-3-ui, lane-4-cad-qto, lane-5-regression, lane-6-workspace]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm all six release lanes passed
+        run: |
+          echo "Core, IO/XREF, UI, CAD/QTO, Engine regression and Full Workspace are green."
+          echo "Portable Windows and Setup EXE are now allowed to build."
+
+  portable:
+    name: "8 - Portable Windows x64 + Setup smoke"
+    needs: [release-gate]
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: SOURCE_CAD_R65
+    env:
+      RUSTFLAGS: -C target-feature=+crt-static
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+      - name: Build release
+        run: cargo build --release --locked -p cadcraft -p cadcraft-cli --target x86_64-pc-windows-msvc
+      - name: Assemble portable package
+        shell: pwsh
+        working-directory: .
+        run: |
+          $bin = "SOURCE_CAD_R65/target/x86_64-pc-windows-msvc/release"
+          $out = "portable/CAD360_VietNam_TBT_Win64"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item "$bin/cadcraft.exe" "$out/CAD360.exe"
+          Copy-Item "$bin/cadcraft-cli.exe" "$out/cadcraft-cli.exe"
+          $releaseConfig = Get-Content "SOURCE_CAD_R65/.cargo/config.toml" -Raw
+          if ($releaseConfig -notmatch 'CAD360_RELEASE_VERSION\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"') { throw "CAD360 release version missing" }
+          $releaseVersion = $matches[1]
+          $cliVersion = & "$out/cadcraft-cli.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw "CLI smoke test failed" }
+          if (($cliVersion -join "`n") -notmatch [regex]::Escape($releaseVersion)) { throw "CLI reports wrong release version: $cliVersion" }
+          foreach ($name in @("CAD360.exe", "cadcraft-cli.exe")) {
+            $exe = Join-Path $out $name
+            $bytes = [IO.File]::ReadAllBytes((Resolve-Path $exe))
+            if ($bytes.Length -lt 100000 -or $bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw "Invalid Windows PE: $name" }
+            $offset = [BitConverter]::ToInt32($bytes, 0x3C)
+            if ([BitConverter]::ToUInt32($bytes, $offset) -ne 0x4550 -or [BitConverter]::ToUInt16($bytes, $offset + 4) -ne 0x8664) { throw "Invalid x64 architecture: $name" }
+          }
+          $version = (Get-Item (Join-Path $out "CAD360.exe")).VersionInfo
+          if ($version.ProductName -ne "CAD 360 Việt Nam - TBT") { throw "Unexpected ProductName in CAD360.exe: $($version.ProductName)" }
+          if ($version.OriginalFilename -ne "CAD360.exe") { throw "Unexpected OriginalFilename in CAD360.exe: $($version.OriginalFilename)" }
+          if ($version.CompanyName -ne "Công ty CP CN TBT Việt Nam") { throw "Unexpected CompanyName in CAD360.exe: $($version.CompanyName)" }
+          if (!$version.ProductVersion.StartsWith($releaseVersion)) { throw "Unexpected ProductVersion in CAD360.exe: $($version.ProductVersion), expected $releaseVersion" }
+          if (!$version.FileVersion.StartsWith($releaseVersion)) { throw "Unexpected FileVersion in CAD360.exe: $($version.FileVersion), expected $releaseVersion" }
+          Write-Host "Windows PE metadata passed: $($version.ProductName) / $($version.ProductVersion) / $($version.OriginalFilename)"
+          Get-ChildItem $out -Filter "*.exe" | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)  $($_.Name)" } | Set-Content "$out/SHA256SUMS.txt"
+          "CAD360 Viet Nam - TBT Portable x64. Run CAD360.exe." | Set-Content "$out/README.txt" -Encoding UTF8
+          Compress-Archive -Path "$out/*" -DestinationPath "portable/CAD360_VietNam_TBT_Portable_Win64.zip" -CompressionLevel Optimal -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_VietNam_TBT_Portable_Win64
+          path: portable/CAD360_VietNam_TBT_Portable_Win64.zip
+          if-no-files-found: error
+      - name: Smoke test extracted portable GUI
+        shell: pwsh
+        working-directory: .
+        run: |
+          $ErrorActionPreference = "Stop"
+          $root = Join-Path $env:RUNNER_TEMP "CAD360_Portable_Smoke"
+          if (Test-Path $root) { Remove-Item $root -Recurse -Force }
+          Expand-Archive -LiteralPath "portable/CAD360_VietNam_TBT_Portable_Win64.zip" -DestinationPath $root -Force
+          $app = Join-Path $root "CAD360.exe"
+          if (!(Test-Path $app)) { throw "Portable GUI missing" }
+          $expected = (Get-Content (Join-Path $root "SHA256SUMS.txt") | Where-Object { $_ -match 'CAD360.exe$' } | Select-Object -First 1).Split(' ')[0]
+          if (!$expected -or $expected -ne (Get-FileHash $app -Algorithm SHA256).Hash) { throw "Portable GUI SHA256 mismatch" }
+          $gui = Start-Process -FilePath $app -WorkingDirectory $root -PassThru
+          try {
+            Start-Sleep -Seconds 8
+            $gui.Refresh()
+            if ($gui.HasExited) { throw "Portable GUI exited early: $($gui.ExitCode)" }
+          } finally {
+            if (!$gui.HasExited) {
+              Stop-Process -Id $gui.Id -Force
+              if (!$gui.WaitForExit(10000)) { throw "Portable GUI did not terminate after forced stop" }
+            }
+          }
+          Write-Host "Portable GUI launch, cleanup and SHA256 passed"
+      - name: Compile the same CAD360 binary into Windows installer
+        shell: pwsh
+        working-directory: .
+        run: |
+          $src = "SOURCE_CAD_R65/target/x86_64-pc-windows-msvc/release"
+          $dst = "SOURCE_CAD_R65/target/release"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item "$src/cadcraft.exe" "$dst/cadcraft.exe" -Force
+          Copy-Item "$src/cadcraft-cli.exe" "$dst/cadcraft-cli.exe" -Force
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6/ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
+          }
+          if (!(Test-Path $iscc)) { throw "ISCC.exe not found" }
+          & $iscc "/Qp" "installer/TBT360_CAD_R65.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed" }
+          if (!(Test-Path "dist/CAD360_VietNam_TBT_Setup.exe")) { throw "Setup EXE was not generated" }
+          $setupHash = (Get-FileHash "dist/CAD360_VietNam_TBT_Setup.exe" -Algorithm SHA256).Hash
+          "$setupHash  CAD360_VietNam_TBT_Setup.exe" | Set-Content "dist/CAD360_VietNam_TBT_Setup.exe.sha256" -Encoding ascii
+          Write-Host "Setup SHA256: $setupHash"
+      - name: Smoke test Windows installer and uninstall
+        shell: pwsh
+        working-directory: .
+        run: |
+          $ErrorActionPreference = "Stop"
+          function Invoke-BoundedProcess([string]$file, [string[]]$arguments, [int]$timeoutSeconds, [string]$label) {
+            $p = Start-Process -FilePath $file -ArgumentList $arguments -PassThru
+            if (!$p.WaitForExit($timeoutSeconds * 1000)) {
+              try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch {}
+              throw "$label timed out after $timeoutSeconds seconds"
+            }
+            $p.Refresh()
+            if ($p.ExitCode -ne 0) { throw "$label failed: $($p.ExitCode)" }
+          }
+          function Wait-PathGone([string]$path, [int]$timeoutSeconds, [string]$label) {
+            $deadline = [DateTime]::UtcNow.AddSeconds($timeoutSeconds)
+            while ((Test-Path -LiteralPath $path) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 200 }
+            if (Test-Path -LiteralPath $path) { throw "$label remained after $timeoutSeconds seconds: $path" }
+          }
+          $setup = (Resolve-Path "dist/CAD360_VietNam_TBT_Setup.exe").Path
+          $setupHashLine = (Get-Content "dist/CAD360_VietNam_TBT_Setup.exe.sha256" | Select-Object -First 1)
+          $expectedSetupHash = ($setupHashLine -split '\s+')[0]
+          if (!$expectedSetupHash -or $expectedSetupHash -ne (Get-FileHash $setup -Algorithm SHA256).Hash) { throw "Setup SHA256 sidecar mismatch" }
+          $install = Join-Path $env:RUNNER_TEMP "CAD360_R67_Smoke"
+          if (Test-Path $install) { Remove-Item $install -Recurse -Force }
+          Invoke-BoundedProcess $setup @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/DIR=$install") 120 "Install"
+          $app = Join-Path $install "CAD360.exe"
+          $cli = Join-Path $install "cadcraft-cli.exe"
+          $uninstaller = Join-Path $install "unins000.exe"
+          if (!(Test-Path $app) -or !(Test-Path $cli) -or !(Test-Path $uninstaller)) { throw "Installed GUI/CLI/uninstaller missing" }
+          $startShortcut = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\CAD 360 Việt Nam - TBT.lnk"
+          if (!(Test-Path $startShortcut)) { throw "Start Menu shortcut missing" }
+          $shell = New-Object -ComObject WScript.Shell
+          $shortcut = $shell.CreateShortcut($startShortcut)
+          if ([IO.Path]::GetFullPath($shortcut.TargetPath) -ne [IO.Path]::GetFullPath($app)) { throw "Start Menu shortcut points to wrong target: $($shortcut.TargetPath)" }
+          $sourceHash = (Get-FileHash "SOURCE_CAD_R65/target/x86_64-pc-windows-msvc/release/cadcraft.exe" -Algorithm SHA256).Hash
+          $sourceCliHash = (Get-FileHash "SOURCE_CAD_R65/target/x86_64-pc-windows-msvc/release/cadcraft-cli.exe" -Algorithm SHA256).Hash
+          if ((Get-FileHash $app -Algorithm SHA256).Hash -ne $sourceHash) { throw "Installed GUI differs from release build" }
+          if ((Get-FileHash $cli -Algorithm SHA256).Hash -ne $sourceCliHash) { throw "Installed CLI differs from release build" }
+          $installedVersion = (Get-Item $app).VersionInfo
+          if ($installedVersion.ProductName -ne "CAD 360 Việt Nam - TBT" -or $installedVersion.OriginalFilename -ne "CAD360.exe" -or !$installedVersion.ProductVersion.StartsWith("0.68.0")) { throw "Installed GUI VersionInfo mismatch: $($installedVersion.ProductName) / $($installedVersion.ProductVersion) / $($installedVersion.OriginalFilename)" }
+          $cliVersion = & $cli --version
+          if ($LASTEXITCODE -ne 0 -or (($cliVersion -join "`n") -notmatch '0\.67\.0')) { throw "Installed CLI reports wrong release version: $cliVersion" }
+          $gui = Start-Process -FilePath $app -WorkingDirectory $install -PassThru
+          Start-Sleep -Seconds 7
+          $gui.Refresh()
+          if ($gui.HasExited) { throw "GUI quit immediately with code $($gui.ExitCode)" }
+          Stop-Process -Id $gui.Id -Force
+          if (!$gui.WaitForExit(10000)) { throw "Installed GUI did not terminate after forced stop" }
+          Invoke-BoundedProcess $uninstaller @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") 120 "Uninstall"
+          Wait-PathGone $app 15 "Installed GUI"
+          Wait-PathGone $cli 15 "Installed CLI"
+          Wait-PathGone $startShortcut 15 "Start Menu shortcut"
+          Write-Host "R67 setup hash, install contents, shortcut target, versions, GUI launch and uninstall smoke passed"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_R67_Windows_Setup_EXE
+          path: |
+            dist/CAD360_VietNam_TBT_Setup.exe
+            dist/CAD360_VietNam_TBT_Setup.exe.sha256
+          if-no-files-found: error
