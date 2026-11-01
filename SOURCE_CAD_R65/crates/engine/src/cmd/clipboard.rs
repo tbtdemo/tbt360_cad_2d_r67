@@ -311,7 +311,7 @@ fn merge(d: &mut Drawing, defs: &Drawing) -> BTreeMap<String, String> {
     let mut block_handle_map=HashMap::new();
     for from in renames.keys() {
         if let Some(b)=defs.blocks.get(from) {
-            for e in &b.entities {
+            for e in b.entities.iter() {
                 if !block_handle_map.contains_key(&e.handle) {
                     let h=d.new_handle();
                     block_handle_map.insert(e.handle,h);
@@ -324,7 +324,7 @@ fn merge(d: &mut Drawing, defs: &Drawing) -> BTreeMap<String, String> {
         let mut nb = (**b).clone();
         nb.name = to.clone();
         nb.entities = Default::default();
-        for e in &b.entities {
+        for e in b.entities.iter() {
             let e=adopt_with_handle(d,e,*block_handle_map.get(&e.handle).expect("allocated block handle"),&renames,&block_handle_map);
             d.ensure_layer(&e.common.layer);
             nb.entities.push(e);
