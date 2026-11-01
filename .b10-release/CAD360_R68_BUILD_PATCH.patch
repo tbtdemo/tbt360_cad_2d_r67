@@ -1,0 +1,965 @@
+--- a/SHA256SUMS.txt	2026-10-31 12:58:21.000000000 +0000
++++ b/SHA256SUMS.txt	2026-11-01 03:06:37.323564271 +0000
+@@ -1,16 +1,16 @@
+ e0ccca2393d9f966d2dbf9bd8443b569cb5d60bddc27563470c1041583cad21f  CAD_ORIGINAL_014_REFERENCE/cadcraft.exe
+ c4bcdf58daedb28f8e19e78d04324f0fd081765229225bc31f85a10d037c2cd3  CAD_ORIGINAL_014_REFERENCE/cadcraft-cli.exe
+ 18cc77e7801966725fb26bfedc63b90da2e3fb9f075da442e78e33263e7a0d05  SOURCE_CAD_R65/Cargo.lock
+-4117bec5bee9e45a9fee8fd8a0283fb526e9db372f8d120ccdaed408429e3692  SOURCE_CAD_R65/.cargo/config.toml
++810b862f33cff26332dbf683384314908e848fcd4fb2d5e543fa5ded6d2cd8f8  SOURCE_CAD_R65/.cargo/config.toml
+ beec550ced2d1d778d1581c98c264347a7f0a2d91491513af732b8c8202ef144  SOURCE_CAD_R65/apps/cadcraft/Cargo.toml
+-0e9faed60967ffb425c186937be79ef976c616583fa70453420cd34dbba0b270  SOURCE_CAD_R65/apps/cadcraft/build.rs
+-c85f6dce505f5d2c431061fcf847e8de76c95e1eb35ef8eb98f66a499b54a3e1  SOURCE_CAD_R65/apps/cadcraft/src/main.rs
++c1d4bf93680ebe507a4a9657e5b5a841ba4e5ae332921b98fa284e4ae16755de  SOURCE_CAD_R65/apps/cadcraft/build.rs
++b0626ffd42015f3c5d35227877cb3de992ae77988e1aa6404ae782179be831b2  SOURCE_CAD_R65/apps/cadcraft/src/main.rs
+ acdc42f9e92b75efc1be628c57bbe98739aa77655df0a9255e1364477c2e21b1  SOURCE_CAD_R65/apps/cadcraft/src/takeoff.rs
+ 7870d79d104779e5c72a97606f60096441b95fa814a30691f142446aa81c0917  SOURCE_CAD_R65/apps/cadcraft-cli/src/main.rs
+ 2e001cde7aa3a1f7b6f5670b783c7c82b406b8cb5c3848b2e7c7b3679f370a19  SOURCE_CAD_R65/crates/ui-egui/src/chrome.rs
+ 21dd7cde60119f084d410a22a66c787b134cdeb7cb2b55e1679f8818c9b4802b  SOURCE_CAD_R65/crates/ui-egui/src/dialogs.rs
+-d64095b4ee2eb2cc9346ff4619c619366b3d4e5f5788d8ce3c4e77658c8cf465  installer/TBT360_CAD_R65.iss
+-1969d8d703b19a88985a283638031101a35bea53268cf0d8942ac8349c99a1fd  .github/workflows/parallel-r66.yml
++502f84ced8f5f7433dbc0eb7240f5cc36792d1beb99bffa10499f003e7c3985e  installer/TBT360_CAD_R65.iss
++6295827c5566b651f47e4cfc478c1d9d1e979c8508f22a1a6c03a495e24f77dc  .github/workflows/parallel-r66.yml
+ 0a56d29f901b658ae136b5a4e71211ef9c7b803ba320abb9691619dde3ba1c91  QTO_R134_WEB_WORKSPACE/index.html
+ 47a6f982e15f8c0d2fe65075b30c2fa1debee2faa6ed6fe2db3a04e77e3a8d04  SOURCE_CAD_R65/crates/engine/src/cmd/draw2/divide.rs
+ 2630cb33065073f73d3f021872807cf8a630f08584f4d83ed83a33ebf2ff7c0c  SOURCE_CAD_R65/crates/engine/src/cmd/draw2/tancircle.rs
+@@ -19,7 +19,7 @@
+ 1c9953d5e4986a93b77123a573ec0c29df612a0d8076c8316f33554d69f24b6a  SOURCE_CAD_R65/crates/engine/src/cmd/blocks/xref/load.rs
+ afab8b943b5313476466d4466de368f20a9d683c5d4ffb506096386c0f96641f  SOURCE_CAD_R65/crates/engine/src/cmd/blocks/xref/bind.rs
+ af882be23892f0b02249ace3e5dee030d7ad6715e3a9aa2edd4a3238c8e40ff9  SOURCE_CAD_R65/crates/engine/src/cmd/exchange.rs
+-04666fcba809acd0d1eae4fce4cfba7329459b2c3062bb66ec6c49c48c4a0108  SOURCE_CAD_R65/scripts/r67_static_gate.py
++0681a0858585d55f82e9f68d29e64a219cbb9974ea84caa699a60f321ab6977b  SOURCE_CAD_R65/scripts/r67_static_gate.py
+ 1b15255c8d38f21f9999a8cdea1ce9d3e88b3d812bd53118abc3c66d2c419791  CAD360_R67_TARGET_HARNESS_PREFLIGHT_NOTES.md
+ 38f63eeb8193eca9372d415de50f0f047f9edcca611df507756a1767978d6202  SOURCE_CAD_R65/crates/engine/Cargo.toml
+ d9041476f4852a42aa1f13894d96b5ca343d7d0202b4eacf67a0cee09c4050a3  SOURCE_CAD_R65/crates/io/Cargo.toml
+@@ -47,9 +47,15 @@
+ aa22b4c67e1c07ae42f39b6cb99cb11dc12aa22f4fb5006366a335173813cc06  CAD360_R67_ASYNC_GLOBAL_STATE_HARDENING_NOTES.md
+ 8ed0428ba598028291fd278c8e5749773a997336a013a7c334a1472b42b75ff5  CAD360_R67_WINDOWS_RESOURCE_THREAD_TEARDOWN_NOTES.md
+ a4561dbba2398f367d1a1d6afa5281fe96072187d8bd8390a2a0d4ef77b40174  CAD360_R67_RELEASE_ARTIFACT_TIMEOUT_NOTES.md
+-1ca8228d0cca1ffa76550935d7175ac71cd91083f1c727b7363d381b58e0446c  SOURCE_CAD_R65/apps/cadcraft/src/control_server.rs
++59c7b4ce5de50cacd59991b4ac59505bb07321add07684399d8a73931824fc2b  SOURCE_CAD_R65/apps/cadcraft/src/control_server.rs
+ cccff4571919c6553e0e1723282cce46babe49390392661f281695ca847953dc  SOURCE_CAD_R65/crates/ui-egui/src/control.rs
+ 173820e1a07437692c675c0b428d33a786fd89be80cfa1a9c14a7f567ee65e67  CAD360_R67_RELEASE_CONTENT_TEARDOWN_NOTES.md
+ cc4436904294649b0343fa941656dae460d83c333b0ac813b69bfaa8ff67cb79  SOURCE_CAD_R65/crates/engine/tests/io_hooks_thread_local.rs
+ b6bcbf45c9f3a97a51f2566c3d6764faebee53fcb975868c5a1ef8cde5b978f1  SOURCE_CAD_R65/crates/engine/src/cmd/file.rs
+ af7b0db9df5c19cebf68cdc95e88a6c95e2a0e480ef040b810bce15d5712ac5d  SOURCE_CAD_R65/crates/engine/src/doc_state.rs
++2f0c88f27811e2662c956345afa8fabc1806e3b7d90b62d6f924526bcd69b74d  SOURCE_CAD_R65/crates/ui-egui/src/lib.rs
++f378238fd0e8b88a7159cfe98844ceae6d944ee3b10cdb49af947ef22b7d3d64  SOURCE_CAD_R65/crates/ui-egui/src/docking.rs
++54131651fd33821952fa43d7548145114588ee4f8cb919502b996a37524fd6fa  SOURCE_CAD_R65/crates/ui-egui/src/palettes.rs
++cdd51fd8a3531f0403ba6bf3d797abd22c4ef0c72438211b9a53c15e5f93eb89  SOURCE_CAD_R65/crates/ui-egui/src/quick.rs
++5537a4e925eb71b8e7fb5125d255bd820a0812667bddb3c9d4287a30c11c627a  CAD360_R67_LOCAL_BATCH_01_NOTES.md
++fcffc731f20c47bc24ed128a45ddd905f246e53e2ac5265ea5fc67a527b4675b  SOURCE_CAD_R65/apps/cadcraft/src/bim_collab.rs
+--- a/installer/TBT360_CAD_R65.iss	2026-10-31 08:41:20.000000000 +0000
++++ b/installer/TBT360_CAD_R65.iss	2026-11-01 03:06:21.977754452 +0000
+@@ -1,6 +1,6 @@
+ ; CAD360 Unified R67 installer: one Windows application containing CAD 2D, BIM, IFC and QTO.
+ #define MyAppName "CAD 360 Việt Nam - TBT"
+-#define MyAppVersion "0.67.0"
++#define MyAppVersion "0.68.0"
+ #define MyAppPublisher "Công ty CP CN TBT Việt Nam"
+ [Setup]
+ AppId={{0B643D1A-795E-4C0A-A36A-4AF2C03D1E6F}
+--- a/SOURCE_CAD_R65/apps/cadcraft/src/bim_collab.rs	2026-10-31 07:05:40.000000000 +0000
++++ b/SOURCE_CAD_R65/apps/cadcraft/src/bim_collab.rs	2026-11-01 02:38:50.442588427 +0000
+@@ -53,6 +53,59 @@
+     }
+ }
+ 
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum CollaborationTab {
++    Overview,
++    Workspace,
++    Issues,
++    Sync,
++    Access,
++}
++
++impl CollaborationTab {
++    fn label(self) -> &'static str {
++        match self {
++            Self::Overview => "Tổng quan",
++            Self::Workspace => "Không gian phối hợp",
++            Self::Issues => "Issue / Clash",
++            Self::Sync => "Đồng bộ",
++            Self::Access => "Quyền truy cập",
++        }
++    }
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum IssueViewFilter {
++    Active,
++    Open,
++    InProgress,
++    Resolved,
++    All,
++}
++
++impl IssueViewFilter {
++    fn label(self) -> &'static str {
++        match self {
++            Self::Active => "Đang hoạt động",
++            Self::Open => "Mở",
++            Self::InProgress => "Đang xử lý",
++            Self::Resolved => "Đã xử lý",
++            Self::All => "Tất cả",
++        }
++    }
++
++    fn matches(self, status: IssueStatus) -> bool {
++        match self {
++            Self::Active => status != IssueStatus::Resolved,
++            Self::Open => status == IssueStatus::Open,
++            Self::InProgress => status == IssueStatus::InProgress,
++            Self::Resolved => status == IssueStatus::Resolved,
++            Self::All => true,
++        }
++    }
++}
++
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub enum ConnectionMode {
+     Offline,
+@@ -215,6 +268,20 @@
+     pub updated_by: String,
+ }
+ 
++#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
++pub enum IssuePriority {
++    P0,
++    P1,
++    P2,
++}
++
++impl IssuePriority {
++    fn label(self) -> &'static str {
++        match self { Self::P0 => "P0 Khẩn cấp", Self::P1 => "P1 Cao", Self::P2 => "P2 Thường" }
++    }
++    fn rank(self) -> u8 { match self { Self::P0=>0, Self::P1=>1, Self::P2=>2 } }
++}
++
+ #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+ pub enum IssueStatus {
+     Open,
+@@ -261,6 +328,7 @@
+     pub handle: Option<cadcraft_doc::Handle>,
+     pub assigned_to: String,
+     pub description: String,
++    pub priority: IssuePriority,
+     pub status: IssueStatus,
+ }
+ 
+@@ -530,6 +598,7 @@
+ }
+ 
+ pub struct State {
++    pub ui_tab: CollaborationTab,
+     pub connection: ConnectionMode,
+     pub layout: ViewLayout,
+     pub current_account_id: String,
+@@ -551,6 +620,13 @@
+     pub share_grants: Vec<ShareGrant>,
+     pub progress: Vec<ScopeProgress>,
+     pub issues: Vec<CoordinationIssue>,
++    pub issue_search: String,
++    pub issue_only_mine: bool,
++    pub issue_status_filter: IssueViewFilter,
++    pub issue_discipline_filter: Option<Discipline>,
++    pub issue_priority_filter: Option<IssuePriority>,
++    pub issue_bulk_selection: Vec<u64>,
++    pub coordination_focus_mode: bool,
+     pub coordination_candidates: Vec<CoordinationCandidate>,
+     pub audit_log: Vec<AuditEntry>,
+     next_audit_sequence: u64,
+@@ -582,6 +658,7 @@
+             ViewSlot { floor_id: 1, discipline: Discipline::Plumbing, owner_account_id: None, overlay_opacity: 0.35, show_other_users: true, mode: ViewMode::Reference },
+         ];
+         Self {
++            ui_tab: CollaborationTab::Overview,
+             connection: ConnectionMode::Offline,
+             layout: ViewLayout::Two,
+             current_account_id: "local-owner".into(),
+@@ -622,6 +699,13 @@
+                 ScopeProgress { floor_id: 1, discipline: Discipline::Plumbing, percent: 0, status: ScopeStatus::NotStarted, updated_by: "mep-water-01".into() },
+             ],
+             issues: Vec::new(),
++            issue_search: String::new(),
++            issue_only_mine: false,
++            issue_status_filter: IssueViewFilter::Active,
++            issue_discipline_filter: None,
++            issue_priority_filter: None,
++            issue_bulk_selection: Vec::new(),
++            coordination_focus_mode: false,
+             coordination_candidates: Vec::new(),
+             audit_log: Vec::new(),
+             next_audit_sequence: 1,
+@@ -858,6 +942,7 @@
+             handle,
+             assigned_to: self.users.iter().find(|u| u.discipline == target_discipline).map(|u| u.account_id.clone()).unwrap_or_default(),
+             description: "Kiểm tra phối hợp tại vị trí/đối tượng được chọn".into(),
++            priority: IssuePriority::P1,
+             status: IssueStatus::Open,
+         });
+         let issue_id = self.next_issue_id;
+@@ -1012,6 +1097,7 @@
+             "handle": i.handle.map(|h| h.hex()),
+             "assigned_to": i.assigned_to,
+             "description": i.description,
++            "priority": i.priority.label(),
+             "status": i.status.label()
+         })).collect::<Vec<_>>();
+         serde_json::json!({
+@@ -1179,6 +1265,7 @@
+                     handle,
+                     assigned_to: item.get("assigned_to").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+                     description: item.get("description").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
++                    priority: match item.get("priority").and_then(serde_json::Value::as_str) { Some("P0 Khẩn cấp")=>IssuePriority::P0, Some("P2 Thường")=>IssuePriority::P2, _=>IssuePriority::P1 },
+                     status: match item.get("status").and_then(serde_json::Value::as_str) {
+                         Some("Đang xử lý") => IssueStatus::InProgress,
+                         Some("Đã xử lý") => IssueStatus::Resolved,
+@@ -1390,9 +1477,425 @@
+     app.tile_render_filters = filters;
+ }
+ 
++
++fn coordination_header(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
++    state.sync_scope_from_active_view(app);
++    let selected=app.session.selection().to_vec();
++    state.update_presence(selected.first().copied());
++    let floor=state.floors.iter().find(|f| f.id==state.active_floor_id).map(|f| f.name.as_str()).unwrap_or("Chưa chọn tầng");
++    let connection=match state.connection { ConnectionMode::Offline=>"Offline", ConnectionMode::Online=>"Đã đồng bộ" };
++
++    ui.horizontal(|ui| {
++        ui.vertical(|ui| {
++            ui.heading("Phối hợp thiết kế");
++            ui.label("Không gian làm việc cộng tác BIM – phát hiện xung đột, giao việc, xử lý và đồng bộ thiết kế.");
++        });
++        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui| {
++            ui.label(format!("● {}",connection));
++            ui.separator();
++            ui.label(format!("{} người đang phối hợp",state.presence.len().max(1)));
++            ui.separator();
++            ui.label(format!("Dự án: {}",state.project_name));
++        });
++    });
++    ui.add_space(6.0);
++    ui.horizontal_wrapped(|ui| {
++        for tab in [CollaborationTab::Overview,CollaborationTab::Workspace,CollaborationTab::Issues,CollaborationTab::Sync,CollaborationTab::Access] {
++            ui.selectable_value(&mut state.ui_tab,tab,tab.label());
++        }
++        ui.separator();
++        ui.small(format!("{} / {}",floor,state.active_discipline.label()));
++    });
++    ui.separator();
++}
++
++fn coordination_overview(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
++    let health=state.model_health(app);
++    let selected=app.session.selection().to_vec();
++    let active_people=state.presence.len().max(1);
++    let open_issues=state.issues.iter().filter(|i| i.status==IssueStatus::Open).count();
++    let doing_issues=state.issues.iter().filter(|i| i.status==IssueStatus::InProgress).count();
++    let resolved_issues=state.issues.iter().filter(|i| i.status==IssueStatus::Resolved).count();
++    let blockers=health.conflicts+health.unscoped_entities+open_issues;
++    let can_close_issue=health.conflicts==0 && state.dirty_local_changes==0;
++    let me_name=state.active_user().map(|u|u.display_name.clone()).unwrap_or_else(||state.current_account_id.clone());
++    let floor=state.floors.iter().find(|f|f.id==state.active_floor_id).map(|f|f.name.as_str()).unwrap_or("?");
++    let mine_open=state.issues.iter().filter(|i|i.status!=IssueStatus::Resolved && (i.assigned_to==me_name || i.assigned_to==state.current_account_id)).count();
++    let next_mine_handle=state.issues.iter().filter(|i|i.status!=IssueStatus::Resolved && (i.assigned_to==me_name || i.assigned_to==state.current_account_id) && i.handle.is_some()).min_by_key(|i|(i.priority.rank(),i.id)).and_then(|i|i.handle);
++
++    ui.horizontal_wrapped(|ui| {
++        let mut card=|ui:&mut egui::Ui,title:&str,value:String,note:String,color:egui::Color32| {
++            ui.group(|ui| {
++                ui.set_min_width(165.0);
++                ui.label(title);
++                ui.colored_label(color,egui::RichText::new(value).size(24.0).strong());
++                ui.small(note);
++            });
++        };
++        card(ui,"Người đang phối hợp",active_people.to_string(),"Đang hoạt động".into(),egui::Color32::LIGHT_BLUE);
++        card(ui,"Issue mở",open_issues.to_string(),format!("{} đang xử lý",doing_issues),egui::Color32::YELLOW);
++        card(ui,"Thay đổi chờ đồng bộ",health.pending_changes.to_string(),format!("{} thay đổi local",state.dirty_local_changes),egui::Color32::LIGHT_GREEN);
++        card(ui,"Xung đột",health.conflicts.to_string(),if health.conflicts==0{"Không có xung đột".into()}else{"Cần xử lý".into()},egui::Color32::LIGHT_RED);
++        card(ui,"Việc cần xử lý",blockers.to_string(),format!("{} đã hoàn tất",resolved_issues),egui::Color32::GOLD);
++    });
++
++    ui.add_space(6.0);
++    ui.group(|ui| {
++        ui.horizontal_wrapped(|ui| {
++            ui.strong("Thao tác nhanh");
++            ui.separator();
++            ui.label(format!("Scope: {} / {}",floor,state.active_discipline.label()));
++            ui.label(format!("Selection: {}",selected.len()));
++            ui.separator();
++            if ui.add_enabled(!selected.is_empty(),egui::Button::new("Tạo Issue từ selection")).clicked(){state.ui_tab=CollaborationTab::Issues;}
++            if state.connection==ConnectionMode::Online && state.dirty_local_changes>0 && ui.button("Đồng bộ ngay").clicked(){state.sync_pending_changes();}
++            if !state.work_session_active {
++                let can_edit=state.can_edit_active_view(app);
++                if ui.add_enabled(can_edit,egui::Button::new("Bắt đầu phiên thiết kế")).clicked(){state.start_work_session(app);}
++            } else if ui.button("Kết thúc phiên").clicked(){state.stop_work_session();}
++            if health.conflicts>0 && ui.button("Xử lý xung đột").clicked(){state.ui_tab=CollaborationTab::Sync;}
++            if let Some(handle)=next_mine_handle {
++                if ui.button(format!("Việc tiếp theo của tôi ({})",mine_open)).clicked(){app.session.set_selection(vec![handle]);}
++            } else if mine_open>0 { ui.label(format!("{} việc của tôi chưa có đối tượng để định vị",mine_open)); }
++        });
++    });
++
++    ui.add_space(8.0);
++    ui.group(|ui| {
++        ui.strong("Quy trình phối hợp");
++        ui.add_space(4.0);
++        ui.horizontal_wrapped(|ui| {
++            let steps=[
++                ("1  Phát hiện","Tự động kiểm tra xung đột / phát hiện Issue"),
++                ("2  Giao việc","Phân công phụ trách, đặt hạn xử lý"),
++                ("3  Xử lý","Cập nhật, điều chỉnh mô hình / bản vẽ"),
++                ("4  Đồng bộ","Đồng bộ thay đổi giữa các bộ môn"),
++                ("5  Xác nhận & đóng","Kiểm tra kết quả, đóng Issue / Clash"),
++            ];
++            for (idx,(title,desc)) in steps.iter().enumerate() {
++                ui.group(|ui| { ui.set_min_width(175.0); ui.strong(*title); ui.small(*desc); });
++                if idx+1<steps.len(){ui.label("→");}
++            }
++        });
++    });
++
++    ui.add_space(8.0);
++    let avail=ui.available_width();
++    let show_sidebar=!state.coordination_focus_mode && avail>=1040.0;
++    let left=if show_sidebar {(avail*0.68).clamp(560.0,900.0)} else {avail.max(560.0)};
++    if !show_sidebar {
++        ui.horizontal_wrapped(|ui| {
++            if state.coordination_focus_mode { ui.colored_label(egui::Color32::LIGHT_BLUE,"Chế độ tập trung Issue đang bật"); }
++            else { ui.small("Cửa sổ hẹp: panel Ai đang làm gì / Phiên thiết kế được thu gọn để ưu tiên bảng Issue."); }
++            if state.coordination_focus_mode && ui.small_button("Tắt tập trung").clicked(){state.coordination_focus_mode=false;}
++        });
++    }
++    ui.horizontal_top(|ui| {
++        ui.vertical(|ui| {
++            ui.set_width(left);
++            ui.group(|ui| {
++                ui.horizontal_wrapped(|ui| {
++                    ui.strong("Danh sách Issue / Clash");
++                    ui.separator();
++                    ui.add_sized([210.0,22.0],egui::TextEdit::singleline(&mut state.issue_search).hint_text("Tìm mã, nội dung, phụ trách..."));
++                    egui::ComboBox::from_id_salt("coord_issue_status_filter").selected_text(state.issue_status_filter.label()).show_ui(ui,|ui| {
++                        for filter in [IssueViewFilter::Active,IssueViewFilter::Open,IssueViewFilter::InProgress,IssueViewFilter::Resolved,IssueViewFilter::All] {
++                            ui.selectable_value(&mut state.issue_status_filter,filter,filter.label());
++                        }
++                    });
++                    egui::ComboBox::from_id_salt("coord_issue_discipline_filter").selected_text(state.issue_discipline_filter.map(|d|d.label()).unwrap_or("Tất cả bộ môn")).show_ui(ui,|ui| {
++                        ui.selectable_value(&mut state.issue_discipline_filter,None,"Tất cả bộ môn");
++                        for discipline in Discipline::ALL { ui.selectable_value(&mut state.issue_discipline_filter,Some(discipline),discipline.label()); }
++                    });
++                    egui::ComboBox::from_id_salt("coord_issue_priority_filter").selected_text(state.issue_priority_filter.map(|p|p.label()).unwrap_or("Tất cả ưu tiên")).show_ui(ui,|ui| {
++                        ui.selectable_value(&mut state.issue_priority_filter,None,"Tất cả ưu tiên");
++                        for priority in [IssuePriority::P0,IssuePriority::P1,IssuePriority::P2] { ui.selectable_value(&mut state.issue_priority_filter,Some(priority),priority.label()); }
++                    });
++                    ui.checkbox(&mut state.issue_only_mine,"Chỉ việc của tôi");
++                    ui.checkbox(&mut state.coordination_focus_mode,"Tập trung Issue");
++                    if (!state.issue_search.is_empty() || state.issue_only_mine || state.issue_status_filter!=IssueViewFilter::Active || state.issue_discipline_filter.is_some() || state.issue_priority_filter.is_some()) && ui.small_button("Xóa lọc").clicked() {
++                        state.issue_search.clear();
++                        state.issue_only_mine=false;
++                        state.issue_status_filter=IssueViewFilter::Active;
++                        state.issue_discipline_filter=None;
++                        state.issue_priority_filter=None;
++                    }
++                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui| {
++                        if ui.button("Mở quản lý").clicked(){state.ui_tab=CollaborationTab::Issues;}
++                        if ui.button("Quét xung đột").clicked(){state.scan_2d_coordination_candidates(app,state.active_floor_id,20_000);}
++                    });
++                });
++                if !can_close_issue { ui.small("Hoàn tất Issue bị khóa khi còn thay đổi local hoặc xung đột chưa xử lý. Hãy đồng bộ và giải quyết conflict trước khi đóng."); }
++                ui.separator();
++                let query=state.issue_search.trim().to_ascii_lowercase();
++                let filtered_count=state.issues.iter().filter(|issue| {
++                    if !state.issue_status_filter.matches(issue.status) { return false; }
++                    if state.issue_discipline_filter.is_some_and(|d|d!=issue.target_discipline) { return false; }
++                    if state.issue_priority_filter.is_some_and(|p|p!=issue.priority) { return false; }
++                    let mine=issue.assigned_to==me_name || issue.assigned_to==state.current_account_id;
++                    if state.issue_only_mine && !mine { return false; }
++                    if query.is_empty() { return true; }
++                    let issue_code=format!("ISS-{:03}",issue.id);
++                    format!("{} {} {} {}",issue_code,issue.description,issue.assigned_to,issue.target_discipline.label()).to_ascii_lowercase().contains(&query)
++                }).count();
++                ui.horizontal_wrapped(|ui| {
++                    ui.small(format!("Hiển thị {} / {} Issue",filtered_count,state.issues.len()));
++                    ui.separator();
++                    ui.small(format!("Đã chọn {}",state.issue_bulk_selection.len()));
++                    if ui.small_button("Chọn tất cả đang lọc").clicked() {
++                        state.issue_bulk_selection=state.issues.iter().filter(|issue| {
++                            state.issue_status_filter.matches(issue.status)
++                                && state.issue_discipline_filter.is_none_or(|d|d==issue.target_discipline)
++                                && state.issue_priority_filter.is_none_or(|p|p==issue.priority)
++                                && (!state.issue_only_mine || issue.assigned_to==me_name || issue.assigned_to==state.current_account_id)
++                                && (query.is_empty() || format!("ISS-{:03} {} {} {}",issue.id,issue.description,issue.assigned_to,issue.target_discipline.label()).to_ascii_lowercase().contains(&query))
++                        }).map(|i|i.id).collect();
++                    }
++                    if !state.issue_bulk_selection.is_empty() && ui.small_button("Bỏ chọn").clicked(){state.issue_bulk_selection.clear();}
++                    let selected_ids=state.issue_bulk_selection.clone();
++                    if !selected_ids.is_empty() && ui.small_button(format!("Nhận {} Issue",selected_ids.len())).clicked() {
++                        for issue in &mut state.issues { if selected_ids.contains(&issue.id) && issue.status==IssueStatus::Open { issue.status=IssueStatus::InProgress; issue.assigned_to=me_name.clone(); } }
++                    }
++                    let done=ui.add_enabled(!selected_ids.is_empty() && can_close_issue,egui::Button::new(format!("Hoàn tất {} Issue",selected_ids.len())).small());
++                    if done.on_hover_text(if can_close_issue{"Hoàn tất hàng loạt các Issue đã chọn"}else{"Cần đồng bộ và xử lý xung đột trước"}).clicked() {
++                        for issue in &mut state.issues { if selected_ids.contains(&issue.id) && issue.status==IssueStatus::InProgress { issue.status=IssueStatus::Resolved; } }
++                        state.issue_bulk_selection.clear();
++                    }
++                });
++                egui::ScrollArea::vertical().max_height(330.0).show(ui,|ui| {
++                    egui::Grid::new("coord_overview_issue_list").striped(true).show(ui,|ui| {
++                        ui.strong("✓"); ui.strong("Mã"); ui.strong("Ưu tiên"); ui.strong("Nội dung"); ui.strong("Bộ môn"); ui.strong("Phụ trách"); ui.strong("Trạng thái"); ui.strong("Tác vụ"); ui.end_row();
++                        let mut shown=0usize;
++                        for issue in &mut state.issues {
++                            if !state.issue_status_filter.matches(issue.status) { continue; }
++                            if state.issue_discipline_filter.is_some_and(|d|d!=issue.target_discipline) { continue; }
++                            if state.issue_priority_filter.is_some_and(|p|p!=issue.priority) { continue; }
++                            let issue_code=format!("ISS-{:03}",issue.id);
++                            let mine=issue.assigned_to==me_name || issue.assigned_to==state.current_account_id;
++                            if state.issue_only_mine && !mine { continue; }
++                            if !query.is_empty() {
++                                let hay=format!("{} {} {} {}",issue_code,issue.description,issue.assigned_to,issue.target_discipline.label()).to_ascii_lowercase();
++                                if !hay.contains(&query){continue;}
++                            }
++                            shown+=1;
++                            let mut bulk_selected=state.issue_bulk_selection.contains(&issue.id);
++                            if ui.checkbox(&mut bulk_selected,"").changed() {
++                                if bulk_selected { if !state.issue_bulk_selection.contains(&issue.id){state.issue_bulk_selection.push(issue.id);} }
++                                else { state.issue_bulk_selection.retain(|id|*id!=issue.id); }
++                            }
++                            ui.label(issue_code);
++                            let priority_color=match issue.priority { IssuePriority::P0=>egui::Color32::LIGHT_RED, IssuePriority::P1=>egui::Color32::YELLOW, IssuePriority::P2=>egui::Color32::LIGHT_BLUE };
++                            ui.colored_label(priority_color,issue.priority.label());
++                            if let Some(handle)=issue.handle {
++                                if ui.button(&issue.description).on_hover_text("Chọn và định vị đối tượng liên quan").clicked(){app.session.set_selection(vec![handle]);}
++                            } else { ui.label(&issue.description); }
++                            ui.label(issue.target_discipline.label());
++                            ui.label(if issue.assigned_to.trim().is_empty(){"Chưa giao"}else{issue.assigned_to.as_str()});
++                            let status_color=match issue.status { IssueStatus::Open=>egui::Color32::LIGHT_RED, IssueStatus::InProgress=>egui::Color32::LIGHT_BLUE, IssueStatus::Resolved=>egui::Color32::LIGHT_GREEN };
++                            ui.colored_label(status_color,issue.status.label());
++                            ui.horizontal(|ui| {
++                                if issue.status==IssueStatus::Open && ui.small_button("Nhận").clicked(){issue.status=IssueStatus::InProgress;issue.assigned_to=me_name.clone();}
++                                let done=ui.add_enabled(issue.status==IssueStatus::InProgress && can_close_issue,egui::Button::new("Hoàn tất").small());
++                                if done.on_hover_text(if can_close_issue{"Đánh dấu đã xử lý"}else{"Cần đồng bộ và xử lý xung đột trước"}).clicked(){issue.status=IssueStatus::Resolved;}
++                                if let Some(handle)=issue.handle { if ui.small_button("Định vị").clicked(){app.session.set_selection(vec![handle]);} }
++                            });
++                            ui.end_row();
++                            if shown>=10 { break; }
++                        }
++                        if shown==0 { ui.label(""); ui.label("-"); ui.label("-"); ui.label("Không có Issue phù hợp bộ lọc"); ui.label("-"); ui.label("-"); ui.colored_label(egui::Color32::LIGHT_GREEN,"Sạch"); ui.label(""); ui.end_row(); }
++                    });
++                });
++            });
++        });
++
++        if show_sidebar { ui.vertical(|ui| {
++            ui.group(|ui| {
++                ui.set_min_width(330.0);
++                ui.horizontal(|ui| { ui.strong("Ai đang làm gì"); ui.label(format!("{} người",state.presence.len())); });
++                ui.separator();
++                if state.presence.is_empty() {
++                    ui.label("Chưa có thành viên online khác.");
++                    ui.small("Khi kết nối server, khu vực này hiển thị người dùng, bộ môn, tầng và đối tượng họ đang thao tác.");
++                } else {
++                    for p in state.presence.iter().take(5) {
++                        let name=state.users.iter().find(|u|u.account_id==p.account_id).map(|u|u.display_name.as_str()).unwrap_or(&p.account_id);
++                        let floor=state.floors.iter().find(|f|f.id==p.floor_id).map(|f|f.name.as_str()).unwrap_or("?");
++                        ui.horizontal(|ui| {
++                            ui.colored_label(egui::Color32::LIGHT_GREEN,"●");
++                            ui.vertical(|ui| { ui.strong(name); ui.small(format!("{} · {}",p.discipline.label(),floor)); });
++                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui| {
++                                if let Some(handle)=p.selected_handle { if ui.small_button("Định vị").clicked(){app.session.set_selection(vec![handle]);} }
++                            });
++                        });
++                        ui.separator();
++                    }
++                }
++            });
++            ui.add_space(8.0);
++            ui.group(|ui| {
++                ui.set_min_width(330.0);
++                ui.strong("Thông tin phiên thiết kế");
++                ui.separator();
++                ui.horizontal(|ui| {ui.label("Phiên hiện hành");ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{ui.colored_label(if state.work_session_active{egui::Color32::LIGHT_GREEN}else{egui::Color32::GRAY},if state.work_session_active{"Đang hoạt động"}else{"Chưa bắt đầu"});});});
++                ui.horizontal(|ui| {ui.label("Scope");ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{ui.label(format!("{} / {}",floor,state.active_discipline.label()));});});
++                ui.horizontal(|ui| {ui.label("Đối tượng đang chọn");ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{ui.label(selected.len().to_string());});});
++                ui.horizontal(|ui| {ui.label("Thay đổi local");ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{ui.label(state.dirty_local_changes.to_string());});});
++                ui.horizontal(|ui| {ui.label("Trạng thái đồng bộ");ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{ui.colored_label(if health.conflicts==0{egui::Color32::LIGHT_GREEN}else{egui::Color32::LIGHT_RED},if health.conflicts==0{"Sẵn sàng"}else{"Có xung đột"});});});
++                ui.add_space(4.0);
++                ui.horizontal_wrapped(|ui| {
++                    if state.connection==ConnectionMode::Online && state.dirty_local_changes>0 && ui.button("Đồng bộ ngay").clicked(){state.sync_pending_changes();}
++                    if health.conflicts>0 && ui.button("Mở xử lý conflict").clicked(){state.ui_tab=CollaborationTab::Sync;}
++                    if !state.work_session_active {
++                        let can_edit=state.can_edit_active_view(app);
++                        if ui.add_enabled(can_edit,egui::Button::new("Bắt đầu phiên")).clicked(){state.start_work_session(app);}
++                    } else if ui.button("Kết thúc phiên").clicked(){state.stop_work_session();}
++                });
++            });
++        }); }
++    });
++}
++
++fn coordination_issues(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
++    let open_count=state.issues.iter().filter(|i|i.status==IssueStatus::Open).count();
++    let doing_count=state.issues.iter().filter(|i|i.status==IssueStatus::InProgress).count();
++    let done_count=state.issues.iter().filter(|i|i.status==IssueStatus::Resolved).count();
++    ui.horizontal_wrapped(|ui| {
++        ui.heading("Issue / Clash");
++        ui.separator();
++        ui.label(format!("Mở {}",open_count));
++        ui.label(format!("Đang xử lý {}",doing_count));
++        ui.label(format!("Đã xử lý {}",done_count));
++        ui.separator();
++        if ui.button("Quét giao cắt tầng hiện tại").clicked() { state.scan_2d_coordination_candidates(app,state.active_floor_id,20_000); }
++        ui.label(format!("Ứng viên: {}",state.coordination_candidates.len()));
++    });
++    ui.label("Luồng chuẩn: phát hiện → tạo issue → giao người phụ trách → xử lý trên CAD → đồng bộ → điều phối xác nhận → đóng. Quét 2D chỉ là cảnh báo sơ bộ, không thay thế clash BIM 3D.");
++
++    let selected=app.session.selection().first().copied();
++    ui.group(|ui| {
++        ui.strong("Tạo issue nhanh từ selection");
++        if selected.is_none() { ui.colored_label(egui::Color32::YELLOW,"Chọn một đối tượng CAD trước khi tạo issue."); }
++        ui.horizontal_wrapped(|ui| {
++            for discipline in [Discipline::Structure,Discipline::Electrical,Discipline::Plumbing,Discipline::Hvac] {
++                if ui.add_enabled(selected.is_some(),egui::Button::new(format!("Giao → {}",discipline.label()))).clicked() { state.create_issue_from_selection(selected,discipline); }
++            }
++        });
++    });
++
++    ui.add_space(6.0);
++    ui.group(|ui| {
++        ui.horizontal_wrapped(|ui| {
++            ui.strong("Kanban trạng thái");
++            ui.label(format!("Chưa nhận: {}",open_count));
++            ui.label("→");
++            ui.label(format!("Đang xử lý: {}",doing_count));
++            ui.label("→");
++            ui.label(format!("Chờ/đã xác nhận: {}",done_count));
++        });
++        ui.small("Issue chỉ nên chuyển sang Đã xử lý sau khi thay đổi đã được đồng bộ; bước xác nhận cuối thuộc người điều phối.");
++    });
++
++    ui.separator();
++    egui::ScrollArea::vertical().max_height(460.0).show(ui,|ui| {
++        egui::Grid::new("coord_issues_professional").striped(true).show(ui,|ui| {
++            ui.strong("ID"); ui.strong("Ưu tiên"); ui.strong("Tầng"); ui.strong("Nguồn → Đích"); ui.strong("Đối tượng"); ui.strong("Nội dung cần xử lý"); ui.strong("Phụ trách"); ui.strong("Trạng thái"); ui.strong("Tác vụ"); ui.end_row();
++            for issue in &mut state.issues {
++                ui.label(format!("#{:04}",issue.id));
++                egui::ComboBox::from_id_salt(("coord_issue_priority",issue.id)).selected_text(issue.priority.label()).show_ui(ui,|ui| {
++                    for priority in [IssuePriority::P0,IssuePriority::P1,IssuePriority::P2] { ui.selectable_value(&mut issue.priority,priority,priority.label()); }
++                });
++                ui.label(state.floors.iter().find(|f|f.id==issue.floor_id).map(|f|f.name.as_str()).unwrap_or("?"));
++                ui.label(format!("{} → {}",issue.source_discipline.label(),issue.target_discipline.label()));
++                if let Some(handle)=issue.handle { if ui.button(handle.hex()).clicked(){ app.session.set_selection(vec![handle]); } } else { ui.label("-"); }
++                ui.add_sized([210.0,20.0],egui::TextEdit::singleline(&mut issue.description));
++                ui.add_sized([120.0,20.0],egui::TextEdit::singleline(&mut issue.assigned_to));
++                egui::ComboBox::from_id_salt(("coord_issue_status",issue.id)).selected_text(issue.status.label()).show_ui(ui,|ui| {
++                    for status in [IssueStatus::Open,IssueStatus::InProgress,IssueStatus::Resolved] { ui.selectable_value(&mut issue.status,status,status.label()); }
++                });
++                ui.horizontal(|ui| {
++                    if issue.status==IssueStatus::Open && ui.button("Nhận").clicked(){ issue.status=IssueStatus::InProgress; }
++                    if issue.status==IssueStatus::InProgress && ui.button("Hoàn tất").clicked(){ issue.status=IssueStatus::Resolved; }
++                    if issue.status==IssueStatus::Resolved && ui.button("Mở lại").clicked(){ issue.status=IssueStatus::Open; }
++                });
++                ui.end_row();
++            }
++        });
++    });
++}
++
++fn coordination_sync(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
++    let health=state.model_health(app);
++    ui.horizontal_wrapped(|ui| {
++        ui.strong("Trạng thái đồng bộ");
++        ui.label(format!("Local: {}",state.dirty_local_changes));
++        ui.label(format!("ChangeSet: {}",state.pending_changes.len()));
++        ui.label(format!("Khóa mềm: {}",state.leases.len()));
++        ui.label(format!("Xung đột: {}",state.conflicts.len()));
++        if state.connection==ConnectionMode::Online && state.dirty_local_changes>0 && ui.button("Đồng bộ ngay").clicked() { state.sync_pending_changes(); }
++    });
++    if state.connection==ConnectionMode::Offline { ui.colored_label(egui::Color32::YELLOW,"Đang offline: thay đổi chỉ nằm local cho đến khi kết nối server."); }
++    if health.conflicts==0 { ui.colored_label(egui::Color32::LIGHT_GREEN,"Không có xung đột revision."); }
++    else {
++        let conflicts=state.conflicts.clone();
++        egui::Grid::new("coord_sync_conflicts").striped(true).show(ui,|ui| {
++            ui.strong("Đối tượng"); ui.strong("Base"); ui.strong("Local"); ui.strong("Remote"); ui.strong("Xử lý"); ui.end_row();
++            for conflict in conflicts {
++                ui.label(conflict.handle.hex()); ui.label(conflict.base_revision.to_string()); ui.label(conflict.local_revision.to_string()); ui.label(conflict.remote_revision.to_string());
++                ui.horizontal(|ui| {
++                    if ui.button("Giữ của tôi").clicked(){ state.resolve_conflict(conflict.handle,ConflictResolution::KeepMine); }
++                    if ui.button("Nhận server").clicked(){ state.resolve_conflict(conflict.handle,ConflictResolution::AcceptTheirs); }
++                    if ui.button("Tạo bản sao").clicked(){ state.resolve_conflict(conflict.handle,ConflictResolution::DuplicateMine); }
++                }); ui.end_row();
++            }
++        });
++    }
++    ui.separator();
++    ui.collapsing("Nhật ký hoạt động",|ui| {
++        egui::ScrollArea::vertical().max_height(300.0).show(ui,|ui| {
++            for e in state.audit_log.iter().rev().take(200) { ui.label(format!("#{:04}  {}  {}  {}",e.sequence,e.account_id,e.action,e.detail)); }
++        });
++    });
++}
++
++fn coordination_access(ui: &mut egui::Ui, state: &mut State) {
++    ui.strong("Quyền truy cập & chia sẻ thiết kế");
++    ui.label("Phân biệt quyền xem dữ liệu của người khác và quyền sửa theo tầng/bộ môn. Mặc định nên chỉ cấp quyền tối thiểu cần thiết.");
++    ui.separator();
++    ui.group(|ui| {
++        ui.strong("Chia sẻ dữ liệu giữa các thành viên");
++        egui::Grid::new("coord_access_grants").striped(true).show(ui,|ui| {
++            ui.strong("Người xem"); ui.strong("Chủ dữ liệu"); ui.strong("Tầng"); ui.strong("Bộ môn"); ui.strong("Xem"); ui.strong("Sửa"); ui.end_row();
++            for grant in &mut state.share_grants {
++                ui.label(&grant.viewer_account_id); ui.label(&grant.owner_account_id);
++                ui.label(grant.floor_id.and_then(|id|state.floors.iter().find(|f|f.id==id).map(|f|f.name.clone())).unwrap_or_else(||"Tất cả".into()));
++                ui.label(grant.discipline.map(Discipline::label).unwrap_or("Tất cả")); ui.checkbox(&mut grant.can_view,""); ui.checkbox(&mut grant.can_edit,""); ui.end_row();
++            }
++        });
++    });
++    ui.add_space(8.0);
++    ui.group(|ui| {
++        ui.strong("Rule quyền theo scope");
++        egui::Grid::new("coord_access_rules").striped(true).show(ui,|ui| {
++            ui.strong("Tài khoản"); ui.strong("Tầng"); ui.strong("Bộ môn"); ui.strong("Xem"); ui.strong("Sửa"); ui.end_row();
++            for rule in &mut state.access_rules {
++                ui.label(&rule.account_id); ui.label(rule.floor_id.and_then(|id|state.floors.iter().find(|f|f.id==id).map(|f|f.name.clone())).unwrap_or_else(||"Tất cả".into()));
++                ui.label(rule.discipline.map(Discipline::label).unwrap_or("Tất cả")); ui.checkbox(&mut rule.can_view,""); ui.checkbox(&mut rule.can_edit,""); ui.end_row();
++            }
++        });
++    });
++}
++
+ pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
+-    ui.heading("BIM Cộng tác");
+-    ui.label("Khung sơ bộ cho thiết kế nhiều bộ môn, nhiều tầng/cao độ và phối hợp online/offline trong cùng một file dự án.");
++    coordination_header(ui,app,state);
++    match state.ui_tab {
++        CollaborationTab::Overview=>{ coordination_overview(ui,app,state); return; }
++        CollaborationTab::Issues=>{ coordination_issues(ui,app,state); return; }
++        CollaborationTab::Sync=>{ coordination_sync(ui,app,state); return; }
++        CollaborationTab::Access=>{ coordination_access(ui,state); return; }
++        CollaborationTab::Workspace=>{}
++    }
++    ui.heading("Không gian phối hợp");
++    ui.label("Thiết lập scope làm việc, tầng/cao độ, viewport CAD, bộ môn tham chiếu và phiên thiết kế. Đây là khu vực cấu hình; công việc điều phối hằng ngày nằm ở Tổng quan và Issue / Clash.");
+ 
+     {
+         let health = state.model_health(app);
+@@ -2311,6 +2814,24 @@
+     }
+ 
+     #[test]
++    fn collaboration_center_opens_on_overview_with_task_oriented_tabs() {
++        let state=State::default();
++        assert_eq!(state.ui_tab,CollaborationTab::Overview);
++        assert_eq!(CollaborationTab::Overview.label(),"Tổng quan");
++        assert_eq!(CollaborationTab::Workspace.label(),"Không gian phối hợp");
++        assert_eq!(CollaborationTab::Issues.label(),"Issue / Clash");
++        assert_eq!(CollaborationTab::Sync.label(),"Đồng bộ");
++        assert_eq!(CollaborationTab::Access.label(),"Quyền truy cập");
++        let source=include_str!("bim_collab.rs");
++        assert!(source.contains("Quy trình phối hợp"));
++        assert!(source.contains("Danh sách Issue / Clash"));
++        assert!(source.contains("Tất cả ưu tiên"));
++        assert!(source.contains("Việc tiếp theo của tôi"));
++        assert!(source.contains("Chọn tất cả đang lọc"));
++        assert!(source.contains("Hoàn tất"));
++    }
++
++    #[test]
+     fn view_layout_has_expected_slot_count() {
+         assert_eq!(ViewLayout::One.slots(), 1);
+         assert_eq!(ViewLayout::Two.slots(), 2);
+--- a/SOURCE_CAD_R65/apps/cadcraft/build.rs	2026-10-31 11:25:30.000000000 +0000
++++ b/SOURCE_CAD_R65/apps/cadcraft/build.rs	2026-11-01 03:06:21.976446810 +0000
+@@ -10,7 +10,7 @@
+         return;
+     }
+     let strict = std::env::var_os("CADCRAFT_REQUIRE_WINRES").is_some();
+-    let release_version = std::env::var("CAD360_RELEASE_VERSION").unwrap_or_else(|_| "0.67.0".to_string());
++    let release_version = std::env::var("CAD360_RELEASE_VERSION").unwrap_or_else(|_| "0.68.0".to_string());
+     let parsed: Result<Vec<u64>, _> = release_version.split('.').map(str::parse::<u64>).collect();
+     let parts = match parsed {
+         Ok(parts) if (3..=4).contains(&parts.len()) => parts,
+--- a/SOURCE_CAD_R65/.cargo/config.toml	2026-10-31 09:44:44.000000000 +0000
++++ b/SOURCE_CAD_R65/.cargo/config.toml	2026-11-01 03:06:21.974669229 +0000
+@@ -2,4 +2,4 @@
+ xtask = "run --package xtask --"
+ 
+ [env]
+-CAD360_RELEASE_VERSION = "0.67.0"
++CAD360_RELEASE_VERSION = "0.68.0"
+--- a/SOURCE_CAD_R65/apps/cadcraft/src/main.rs	2026-10-31 09:44:44.000000000 +0000
++++ b/SOURCE_CAD_R65/apps/cadcraft/src/main.rs	2026-11-01 02:38:10.066369169 +0000
+@@ -25,6 +25,7 @@
+ mod system_animations;
+ mod workspace;
+ mod takeoff;
++mod bim_collab;
+ 
+ use cadcraft_engine::Session;
+ use cadcraft_ui_egui::{CadApp, Services, i18n};
+@@ -34,12 +35,20 @@
+     #[default]
+     Cad,
+     Takeoff,
++    BimCollab,
++}
++
++
++fn takeoff_pane_width(total_width: f32) -> f32 {
++    let target = (total_width * 0.36).clamp(340.0, 480.0);
++    target.min((total_width - 420.0).max(260.0))
+ }
+ 
+ struct App {
+     cad: CadApp,
+     active_tab: MainTab,
+     takeoff_state: takeoff::State,
++    bim_collab_state: bim_collab::State,
+     spacemouse: spacemouse::SpaceMouse,
+     /// The desktop's light/dark choice where winit reports none (Linux, the BSDs).
+     desktop_theme: desktop_theme::DesktopTheme,
+@@ -147,46 +156,83 @@
+                 }
+             });
+             ui.separator();
+-            if ui.selectable_label(self.active_tab == MainTab::Takeoff, "Đo bóc CAD").clicked() {
++            if ui.selectable_label(self.active_tab == MainTab::Takeoff, "ĐO BÓC").clicked() {
+                 self.active_tab = if self.active_tab == MainTab::Takeoff { MainTab::Cad } else { MainTab::Takeoff };
+             }
++            if ui.selectable_label(self.active_tab == MainTab::BimCollab, "BIM CỘNG TÁC").clicked() {
++                self.active_tab = if self.active_tab == MainTab::BimCollab { MainTab::Cad } else { MainTab::BimCollab };
++            }
+         });
+         if let Some(cmd) = cad_command { self.cad.start(cmd); }
+         if self.active_tab == MainTab::Takeoff {
+-            ui.columns(2, |columns| {
+-                self.cad.ui(&mut columns[0]);
+-                let ui = &mut columns[1];
+-                ui.horizontal(|ui| {
+-                    ui.heading("Đo bóc từ đối tượng CAD");
+-                    if ui.small_button("Đóng").clicked() { self.active_tab = MainTab::Cad; }
+-                });
++            let available = ui.available_size();
++            let qto_width = takeoff_pane_width(available.x);
++            let canvas_width = (available.x - qto_width - 8.0).max(320.0);
++            ui.horizontal(|ui| {
++                ui.allocate_ui_with_layout(egui::vec2(canvas_width, available.y), egui::Layout::top_down(egui::Align::Min), |ui| self.cad.ui(ui));
+                 ui.separator();
+-                let selected = self.cad.session.selection();
+-                ui.label(egui::RichText::new(format!("Đang chọn {} đối tượng trên bản vẽ", selected.len())).strong());
+-                if let Ok(drawing) = self.cad.session.doc() {
+-                    for handle in selected.iter().take(8) {
+-                        if let Some(entity) = drawing.model.get(*handle) {
+-                            let kind = match &entity.kind {
+-                                cadcraft_doc::EntityKind::Line(_) => "Đường thẳng",
+-                                cadcraft_doc::EntityKind::Arc(_) => "Cung tròn",
+-                                cadcraft_doc::EntityKind::Circle(_) => "Đường tròn",
+-                                cadcraft_doc::EntityKind::LwPolyline(_) => "Đa tuyến",
+-                                cadcraft_doc::EntityKind::Polyline3d(_) => "Đa tuyến 3D",
+-                                cadcraft_doc::EntityKind::Insert(_) => "Khối",
+-                                cadcraft_doc::EntityKind::Hatch(_) => "Mặt cắt",
+-                                _ => "Đối tượng",
+-                            };
+-                            ui.label(format!("{} · {} · Lớp {}", handle.hex(), kind, entity.common.layer));
++                ui.allocate_ui_with_layout(egui::vec2(qto_width, available.y), egui::Layout::top_down(egui::Align::Min), |ui| {
++                    ui.horizontal(|ui| {
++                        ui.heading("Đo bóc từ đối tượng CAD");
++                        if ui.small_button("Đóng").clicked() { self.active_tab = MainTab::Cad; }
++                    });
++                    ui.separator();
++                    let selected = self.cad.session.selection();
++                    ui.label(egui::RichText::new(format!("Đang chọn {} đối tượng trên bản vẽ", selected.len())).strong());
++                    if let Ok(drawing) = self.cad.session.doc() {
++                        for handle in selected.iter().take(8) {
++                            if let Some(entity) = drawing.model.get(*handle) {
++                                let kind = match &entity.kind {
++                                    cadcraft_doc::EntityKind::Line(_) => "Đường thẳng",
++                                    cadcraft_doc::EntityKind::Arc(_) => "Cung tròn",
++                                    cadcraft_doc::EntityKind::Circle(_) => "Đường tròn",
++                                    cadcraft_doc::EntityKind::LwPolyline(_) => "Đa tuyến",
++                                    cadcraft_doc::EntityKind::Polyline3d(_) => "Đa tuyến 3D",
++                                    cadcraft_doc::EntityKind::Insert(_) => "Khối",
++                                    cadcraft_doc::EntityKind::Hatch(_) => "Mặt cắt",
++                                    _ => "Đối tượng",
++                                };
++                                ui.label(format!("{} · {} · Lớp {}", handle.hex(), kind, entity.common.layer));
++                            }
+                         }
++                        if selected.len() > 8 { ui.small(format!("Và {} đối tượng khác", selected.len() - 8)); }
+                     }
+-                    if selected.len() > 8 { ui.small(format!("Và {} đối tượng khác", selected.len() - 8)); }
+-                }
+-                ui.separator();
+-                let qto_scope = takeoff::Scope::default();
+-                egui::ScrollArea::vertical().id_salt("r67_qto_scroll").show(ui, |ui| {
+-                    takeoff::panel(ui, &self.cad, &mut self.takeoff_state, &qto_scope);
++                    ui.separator();
++                    let qto_scope = takeoff::Scope::default();
++                    egui::ScrollArea::vertical().id_salt("r67_qto_scroll").show(ui, |ui| {
++                        takeoff::panel(ui, &self.cad, &mut self.takeoff_state, &qto_scope);
++                    });
+                 });
+             });
++        } else if self.active_tab == MainTab::BimCollab {
++            // Keep the real CAD360 shell (title/toolbar, Tool Sets, file tabs, command/status bars)
++            // visible. BIM collaboration is an in-context workspace over the drawing area, not a
++            // replacement application shell. This is intentionally different from QTO's split pane.
++            self.cad.ui(ui);
++            let ctx=ui.ctx().clone();
++            let available=ctx.content_rect();
++            let width=(available.width()*0.78).clamp(760.0,1320.0);
++            let height=(available.height()*0.78).clamp(520.0,820.0);
++            egui::Window::new("bim_coordination_workspace")
++                .title_bar(false)
++                .collapsible(false)
++                .resizable(true)
++                .default_size(egui::vec2(width,height))
++                .anchor(egui::Align2::CENTER_CENTER,egui::vec2(90.0,24.0))
++                .show(&ctx,|ui| {
++                    ui.horizontal(|ui| {
++                        ui.strong("BIM CỘNG TÁC");
++                        ui.separator();
++                        ui.label("Phối hợp thiết kế");
++                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui| {
++                            if ui.small_button("Quay lại bản vẽ").clicked(){self.active_tab=MainTab::Cad;}
++                        });
++                    });
++                    ui.separator();
++                    egui::ScrollArea::vertical().id_salt("r67_bim_collaboration_scroll").show(ui,|ui| {
++                        bim_collab::panel(ui,&mut self.cad,&mut self.bim_collab_state);
++                    });
++                });
+         } else {
+             self.cad.ui(ui);
+         }
+@@ -489,6 +535,7 @@
+                 cad: app,
+                 active_tab: MainTab::default(),
+                 takeoff_state: takeoff::State::default(),
++                bim_collab_state: bim_collab::State::default(),
+                 spacemouse: spacemouse::SpaceMouse::start(cc.egui_ctx.clone()),
+                 workspace,
+                 workspace_error,
+@@ -503,7 +550,7 @@
+ 
+ #[cfg(test)]
+ mod tests {
+-    use super::{config_dir_from, control_flag, control_port_from, filters_for_save, follow_desktop};
++    use super::{config_dir_from, control_flag, control_port_from, filters_for_save, follow_desktop, takeoff_pane_width};
+     use std::ffi::OsString;
+     use std::path::PathBuf;
+ 
+@@ -512,6 +559,17 @@
+     }
+ 
+     #[test]
++    fn takeoff_workspace_keeps_a_usable_canvas_at_common_window_widths() {
++        for width in [600.0_f32, 800.0, 1200.0, 1920.0] {
++            let qto = takeoff_pane_width(width);
++            let canvas = width - qto - 8.0;
++            assert!((260.0..=480.0).contains(&qto), "QTO pane width {qto} at window {width}");
++            assert!(canvas >= 332.0, "CAD canvas is too narrow: {canvas} at window {width}");
++            assert!(qto < width * 0.5, "QTO must never consume half of the CAD workspace: {qto}/{width}");
++        }
++    }
++
++    #[test]
+     fn save_dialog_offers_dwg_with_the_drawing_format_first() {
+         let first = |name: &str| filters_for_save(name)[0].1;
+         assert_eq!(first("Waco Winnelson Floorplan.dwg"), "dwg");
+--- a/.github/workflows/parallel-r66.yml	2026-10-31 12:12:21.000000000 +0000
++++ b/.github/workflows/parallel-r66.yml	2026-11-01 03:06:21.981485058 +0000
+@@ -68,7 +68,7 @@
+           if ($iss -notmatch '#define\s+MyAppVersion\s+"([0-9]+\.[0-9]+\.[0-9]+)"') { throw "MyAppVersion missing from installer" }
+           $installerVersion = $matches[1]
+           if ($release -ne $installerVersion) { throw "Release version mismatch: Cargo=$release Installer=$installerVersion" }
+-          if ($release -ne "0.67.0") { throw "R67 must publish version 0.67.0, found $release" }
++          if ($release -ne "0.68.0") { throw "R67 must publish version 0.67.0, found $release" }
+           Write-Host "R67 release version passed: $release"
+       - name: Verify six-lane gate is the only Windows Setup publisher
+         shell: pwsh
+@@ -373,7 +373,7 @@
+           if ((Get-FileHash $app -Algorithm SHA256).Hash -ne $sourceHash) { throw "Installed GUI differs from release build" }
+           if ((Get-FileHash $cli -Algorithm SHA256).Hash -ne $sourceCliHash) { throw "Installed CLI differs from release build" }
+           $installedVersion = (Get-Item $app).VersionInfo
+-          if ($installedVersion.ProductName -ne "CAD 360 Việt Nam - TBT" -or $installedVersion.OriginalFilename -ne "CAD360.exe" -or !$installedVersion.ProductVersion.StartsWith("0.67.0")) { throw "Installed GUI VersionInfo mismatch: $($installedVersion.ProductName) / $($installedVersion.ProductVersion) / $($installedVersion.OriginalFilename)" }
++          if ($installedVersion.ProductName -ne "CAD 360 Việt Nam - TBT" -or $installedVersion.OriginalFilename -ne "CAD360.exe" -or !$installedVersion.ProductVersion.StartsWith("0.68.0")) { throw "Installed GUI VersionInfo mismatch: $($installedVersion.ProductName) / $($installedVersion.ProductVersion) / $($installedVersion.OriginalFilename)" }
+           $cliVersion = & $cli --version
+           if ($LASTEXITCODE -ne 0 -or (($cliVersion -join "`n") -notmatch '0\.67\.0')) { throw "Installed CLI reports wrong release version: $cliVersion" }
+           $gui = Start-Process -FilePath $app -WorkingDirectory $install -PassThru
+--- a/SOURCE_CAD_R65/scripts/r67_static_gate.py	2026-10-31 12:58:20.000000000 +0000
++++ b/SOURCE_CAD_R65/scripts/r67_static_gate.py	2026-11-01 03:06:21.978901266 +0000
+@@ -195,6 +195,10 @@
+ control_server = read(SRC / "apps/cadcraft/src/control_server.rs")
+ ui_control = read(SRC / "crates/ui-egui/src/control.rs")
+ require("fn join_with_timeout" in control_server and "busy-queue client" in control_server, "control-server tests: bounded worker join missing")
++require("CADCRAFT_CONTROL_CAPABILITIES" in control_server, "control-server authorization: capability configuration missing")
++require("fn required_capabilities" in control_server and "CAP_FILE_WRITE" in control_server and "CAP_AUTOMATION" in control_server, "control-server authorization: capability classifier missing")
++require("forbidden: capability" in control_server and "requiredCapabilities" in control_server and '"state": "not-run"' in control_server, "control-server authorization: deny-before-dispatch response missing")
++require("capability_gate_rejects_mutations_before_dispatch" in control_server and "capability_gate_separates_file_read_and_file_write" in control_server, "control-server authorization: capability regressions missing")
+ require("control reply worker did not finish within 2s" in ui_control, "ui control tests: bounded reply worker join missing")
+ 
+ # Windows release resources are mandatory in CI/release mode: missing icon or malformed release
+@@ -222,7 +226,7 @@
+ i = re.search(r'#define\s+MyAppVersion\s+"([0-9]+\.[0-9]+\.[0-9]+)"', iss)
+ require(bool(m and i), "release version missing from Cargo env or installer")
+ if m and i:
+-    require(m.group(1) == i.group(1) == "0.67.0", f"release version mismatch: Cargo={m.group(1)} Installer={i.group(1)}")
++    require(m.group(1) == i.group(1) == "0.68.0", f"release version mismatch: Cargo={m.group(1)} Installer={i.group(1)}")
+ require('DestName: "CAD360.exe"' in iss, "installer: GUI must install as CAD360.exe")
+ require('Filename: "{app}\\CAD360.exe"' in iss, "installer: shortcuts/run target must use CAD360.exe")
+ 
+@@ -236,6 +240,38 @@
+ require("save conflict:" in file_cmd and "changed on disk" in file_cmd, "engine save conflict: external-change error missing")
+ require("qsave_refuses_overwriting_a_file_changed_by_another_process" in file_cmd, "engine save conflict: regression test missing")
+ 
++
++# UI handover safeguards: command failures must be visible outside command history, the live QTO
++# workspace must not hard-split CAD 50/50, and dock palettes must yield before the drawing becomes
++# too narrow to edit reliably on mixed-DPI/smaller windows.
++ui_lib = read(SRC / "crates/ui-egui/src/lib.rs")
++desktop_main = read(SRC / "apps/cadcraft/src/main.rs")
++docking = read(SRC / "crates/ui-egui/src/docking.rs")
++require("self.set_status(e.clone());" in ui_lib and "command_errors_are_visible_in_the_status_bar_as_well_as_history" in ui_lib, "ui handover: command errors are not surfaced in the status bar")
++require("fn takeoff_pane_width" in desktop_main and "ui.columns(2" not in desktop_main, "ui handover: QTO workspace still uses a rigid 50/50 CAD split")
++require("QTO must never consume half of the CAD workspace" in desktop_main, "ui handover: responsive QTO pane regression missing")
++require("Panel::Canvas => (egui::vec2(360.0, 220.0)" in docking, "ui handover: CAD canvas minimum dock area missing")
++
++# Locked-layer editing must be blocked in both full Properties and Quick Properties. The Engine
++# remains authoritative, but the UI must not advertise editable controls for locked selections.
++palettes = read(SRC / "crates/ui-egui/src/palettes.rs")
++quick = read(SRC / "crates/ui-egui/src/quick.rs")
++require("let selection_locked = !locked_layers.is_empty();" in palettes and "ui.disable();" in palettes and "Read-only — locked layer" in palettes, "ui locked layer: Properties palette read-only guard missing")
++require("let selection_locked = !locked_layers.is_empty();" in quick and "ui.add_enabled_ui(!selection_locked" in quick and "Read-only — locked layer" in quick, "ui locked layer: Quick Properties read-only guard missing")
++
++# Collaboration Center must stay task-oriented instead of regressing to one long technical form.
++bim_collab = read(SRC / "apps/cadcraft/src/bim_collab.rs")
++require("pub enum CollaborationTab" in bim_collab and "Phối hợp thiết kế" in bim_collab and "Không gian làm việc cộng tác BIM" in bim_collab, "BIM collaboration: approved Coordination Center shell missing")
++for label in ["Tổng quan", "Không gian phối hợp", "Issue / Clash", "Đồng bộ", "Quyền truy cập"]:
++    require(label in bim_collab, f"BIM collaboration: missing task tab {label}")
++require("Người đang phối hợp" in bim_collab and "Issue mở" in bim_collab and "Thay đổi chờ đồng bộ" in bim_collab and "Quy trình phối hợp" in bim_collab and "Danh sách Issue / Clash" in bim_collab and "Ai đang làm gì" in bim_collab and "Thông tin phiên thiết kế" in bim_collab, "BIM collaboration: approved dashboard/workflow layout regressed")
++require("Thao tác nhanh" in bim_collab and "Tạo Issue từ selection" in bim_collab and "Chỉ việc của tôi" in bim_collab and "Cần đồng bộ và xử lý xung đột trước" in bim_collab and "Mở xử lý conflict" in bim_collab, "BIM collaboration: task-oriented quick actions/filter/safe-close workflow regressed")
++require("pub enum IssueViewFilter" in bim_collab and "Đang hoạt động" in bim_collab and "Tập trung Issue" in bim_collab and "Xóa lọc" in bim_collab and "Cửa sổ hẹp: panel Ai đang làm gì / Phiên thiết kế được thu gọn" in bim_collab and "Tất cả bộ môn" in bim_collab and "Việc tiếp theo của tôi" in bim_collab and "Hiển thị {} / {} Issue" in bim_collab, "BIM collaboration: responsive triage/filter/focus workflow regressed")
++require("pub enum IssuePriority" in bim_collab and "P0 Khẩn cấp" in bim_collab and "Tất cả ưu tiên" in bim_collab and "Chọn tất cả đang lọc" in bim_collab and "Nhận {} Issue" in bim_collab and "Hoàn tất {} Issue" in bim_collab, "BIM collaboration: priority/bulk triage workflow regressed")
++require("collaboration_center_opens_on_overview_with_task_oriented_tabs" in bim_collab, "BIM collaboration: tab/default regression test missing")
++require("mod bim_collab;" in desktop_main and "BimCollab" in desktop_main and "bim_collab_state: bim_collab::State" in desktop_main and "BIM CỘNG TÁC" in desktop_main and "bim_collab::panel" in desktop_main, "BIM collaboration: workspace is not wired into the real desktop host")
++require("self.cad.ui(ui);" in desktop_main and "bim_coordination_workspace" in desktop_main and "Quay lại bản vẽ" in desktop_main, "BIM collaboration: CAD360 shell-preserving in-context workspace regressed")
++
+ # High-risk source files must be protected by SHA256SUMS and hashes must be current.
+ manifest = read(ROOT / "SHA256SUMS.txt")
+ critical = [
+@@ -268,6 +304,12 @@
+     "SOURCE_CAD_R65/crates/ui-egui/src/control.rs",
+     "SOURCE_CAD_R65/apps/cadcraft/build.rs",
+     "SOURCE_CAD_R65/apps/cadcraft/src/takeoff.rs",
++    "SOURCE_CAD_R65/crates/ui-egui/src/docking.rs",
++    "SOURCE_CAD_R65/crates/ui-egui/src/lib.rs",
++    "SOURCE_CAD_R65/crates/ui-egui/src/palettes.rs",
++    "SOURCE_CAD_R65/crates/ui-egui/src/quick.rs",
++    "SOURCE_CAD_R65/apps/cadcraft/src/main.rs",
++    "SOURCE_CAD_R65/apps/cadcraft/src/bim_collab.rs",
+     "SOURCE_CAD_R65/scripts/r67_static_gate.py",
+     ".github/workflows/parallel-r66.yml",
+     "installer/TBT360_CAD_R65.iss",
