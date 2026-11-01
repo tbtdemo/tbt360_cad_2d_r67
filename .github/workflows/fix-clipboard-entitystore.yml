@@ -19,29 +19,41 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply compile fix
+      - name: Apply compile fix and checksum
         shell: pwsh
         run: |
-          $path = "SOURCE_CAD_R65/crates/engine/src/cmd/clipboard.rs"
-          $text = Get-Content $path -Raw
-          $count = ([regex]::Matches($text, 'for e in &b\.entities \{')).Count
-          if ($count -ne 2) { throw "Expected exactly 2 EntityStore loops, found $count" }
-          $text = $text.Replace('for e in &b.entities {', 'for e in b.entities.iter() {')
-          Set-Content -Path $path -Value $text -Encoding utf8NoBOM
+          @'
+          from pathlib import Path
+          import hashlib
 
-          $hash = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
-          $manifest = "SHA256SUMS.txt"
-          $lines = Get-Content $manifest
-          $found = $false
-          $lines = $lines | ForEach-Object {
-            if ($_ -match 'SOURCE_CAD_R65/crates/engine/src/cmd/clipboard\.rs$') {
-              $found = $true
-              "$hash  SOURCE_CAD_R65/crates/engine/src/cmd/clipboard.rs"
-            } else { $_ }
-          }
-          if (-not $found) { throw "clipboard.rs checksum entry not found" }
-          Set-Content -Path $manifest -Value $lines -Encoding utf8NoBOM
-          Write-Host "clipboard sha256=$hash"
+          path = Path("SOURCE_CAD_R65/crates/engine/src/cmd/clipboard.rs")
+          data = path.read_bytes()
+          old = b"for e in &b.entities {"
+          new = b"for e in b.entities.iter() {"
+          count = data.count(old)
+          if count != 2:
+              raise SystemExit(f"Expected exactly 2 EntityStore loops, found {count}")
+          data = data.replace(old, new)
+          path.write_bytes(data)
+          digest = hashlib.sha256(path.read_bytes()).hexdigest()
+
+          manifest = Path("SHA256SUMS.txt")
+          text = manifest.read_text(encoding="utf-8")
+          lines = text.splitlines()
+          target = "SOURCE_CAD_R65/crates/engine/src/cmd/clipboard.rs"
+          found = False
+          out = []
+          for line in lines:
+              if line.endswith(target):
+                  out.append(f"{digest}  {target}")
+                  found = True
+              else:
+                  out.append(line)
+          if not found:
+              raise SystemExit("clipboard.rs checksum entry not found")
+          manifest.write_text("\n".join(out) + "\n", encoding="utf-8", newline="\n")
+          print("clipboard sha256=" + digest)
+          '@ | python -
 
       - name: Static gate
         shell: pwsh
