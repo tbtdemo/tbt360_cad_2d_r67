@@ -280,6 +280,49 @@ impl IssuePriority {
         match self { Self::P0 => "P0 Khẩn cấp", Self::P1 => "P1 Cao", Self::P2 => "P2 Thường" }
     }
     fn rank(self) -> u8 { match self { Self::P0=>0, Self::P1=>1, Self::P2=>2 } }
+    fn default_sla_hours(self) -> u64 { match self { Self::P0=>4, Self::P1=>24, Self::P2=>72 } }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IssueKind {
+    Clash,
+    Rfi,
+    DesignChange,
+    Coordination,
+}
+
+impl IssueKind {
+    fn label(self) -> &'static str {
+        match self { Self::Clash => "Clash", Self::Rfi => "RFI", Self::DesignChange => "Thay đổi thiết kế", Self::Coordination => "Phối hợp" }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum IssueImpact {
+    Critical,
+    High,
+    Medium,
+    Low,
+}
+
+impl IssueImpact {
+    fn label(self) -> &'static str {
+        match self { Self::Critical => "Nghiêm trọng", Self::High => "Cao", Self::Medium => "Trung bình", Self::Low => "Thấp" }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IssueVerification {
+    NotSubmitted,
+    Pending,
+    Accepted,
+    Rework,
+}
+
+impl IssueVerification {
+    fn label(self) -> &'static str {
+        match self { Self::NotSubmitted => "Chưa gửi xác nhận", Self::Pending => "Chờ xác nhận", Self::Accepted => "Đã xác nhận đóng", Self::Rework => "Yêu cầu làm lại" }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -310,6 +353,40 @@ pub struct AuditEntry {
     pub detail: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReleaseSignoffRole {
+    Coordinator,
+    Reviewer,
+    Publisher,
+}
+
+impl ReleaseSignoffRole {
+    fn label(self) -> &'static str {
+        match self { Self::Coordinator => "Điều phối", Self::Reviewer => "Reviewer", Self::Publisher => "Publisher" }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ReleaseSignoff {
+    pub role: ReleaseSignoffRole,
+    pub account_id: String,
+    pub display_name: String,
+    pub note: String,
+    pub signed_at_unix: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct ReleaseRecord {
+    pub sequence: u64,
+    pub release_id: String,
+    pub published_at_unix: u64,
+    pub published_by: String,
+    pub note: String,
+    pub signoff_count: usize,
+    pub issue_count: usize,
+    pub high_risk_count: usize,
+}
+
 #[derive(Clone, Debug)]
 pub struct CoordinationCandidate {
     pub floor_id: u64,
@@ -320,6 +397,63 @@ pub struct CoordinationCandidate {
 }
 
 #[derive(Clone, Debug)]
+pub struct IssueComment {
+    pub sequence: u64,
+    pub author: String,
+    pub text: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct IssueViewpoint {
+    pub floor_id: u64,
+    pub discipline: Discipline,
+    pub handles: Vec<cadcraft_doc::Handle>,
+    pub captured_by: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct IssueAssignmentEvent {
+    pub sequence: u64,
+    pub from: String,
+    pub to: String,
+    pub changed_by: String,
+    pub note: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct IssueChecklistItem {
+    pub label: String,
+    pub done: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct IssueRevisionLink {
+    pub change_set_id: u64,
+    pub revision_code: String,
+    pub base_revision: u64,
+    pub target_revision: u64,
+    pub handles: Vec<cadcraft_doc::Handle>,
+    pub applied_to_drawing: bool,
+    pub applied_by: String,
+}
+
+fn now_unix_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+fn issue_deadline_label(issue: &CoordinationIssue, now: u64) -> String {
+    if issue.status == IssueStatus::Resolved { return "Đã hoàn tất".into(); }
+    if issue.due_at_unix == 0 { return "Chưa đặt hạn".into(); }
+    if now > issue.due_at_unix {
+        let hours = (now - issue.due_at_unix + 3599) / 3600;
+        format!("Quá hạn {}h", hours)
+    } else {
+        let hours = (issue.due_at_unix - now + 3599) / 3600;
+        format!("Còn {}h", hours)
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct CoordinationIssue {
     pub id: u64,
     pub floor_id: u64,
@@ -327,9 +461,26 @@ pub struct CoordinationIssue {
     pub target_discipline: Discipline,
     pub handle: Option<cadcraft_doc::Handle>,
     pub assigned_to: String,
+    pub owner_account_id: String,
+    pub reviewer_account_id: String,
+    pub assignment_history: Vec<IssueAssignmentEvent>,
     pub description: String,
+    pub kind: IssueKind,
+    pub impact: IssueImpact,
     pub priority: IssuePriority,
     pub status: IssueStatus,
+    pub verification: IssueVerification,
+    pub created_at_unix: u64,
+    pub due_at_unix: u64,
+    pub comments: Vec<IssueComment>,
+    pub tags: Vec<String>,
+    pub watchers: Vec<String>,
+    pub checklist: Vec<IssueChecklistItem>,
+    pub blocked_by: Vec<u64>,
+    pub escalation_level: u8,
+    pub last_activity_unix: u64,
+    pub viewpoint: Option<IssueViewpoint>,
+    pub revision_link: Option<IssueRevisionLink>,
 }
 
 #[derive(Clone, Debug)]
@@ -625,7 +776,24 @@ pub struct State {
     pub issue_status_filter: IssueViewFilter,
     pub issue_discipline_filter: Option<Discipline>,
     pub issue_priority_filter: Option<IssuePriority>,
+    pub issue_assignee_filter: String,
+    pub issue_tag_filter: String,
+    pub issue_only_overdue: bool,
+    pub issue_only_unassigned: bool,
+    pub issue_only_pending_verification: bool,
     pub issue_bulk_selection: Vec<u64>,
+    pub selected_issue_id: Option<u64>,
+    pub issue_comment_draft: String,
+    pub issue_checklist_draft: String,
+    pub issue_tag_draft: String,
+    pub issue_blocker_draft: String,
+    pub sync_decision_note: String,
+    pub release_note: String,
+    pub release_signoffs: Vec<ReleaseSignoff>,
+    pub release_history: Vec<ReleaseRecord>,
+    next_release_sequence: u64,
+    next_issue_comment_sequence: u64,
+    next_issue_assignment_sequence: u64,
     pub coordination_focus_mode: bool,
     pub coordination_candidates: Vec<CoordinationCandidate>,
     pub audit_log: Vec<AuditEntry>,
@@ -704,7 +872,24 @@ impl Default for State {
             issue_status_filter: IssueViewFilter::Active,
             issue_discipline_filter: None,
             issue_priority_filter: None,
+            issue_assignee_filter: String::new(),
+            issue_tag_filter: String::new(),
+            issue_only_overdue: false,
+            issue_only_unassigned: false,
+            issue_only_pending_verification: false,
             issue_bulk_selection: Vec::new(),
+            selected_issue_id: None,
+            issue_comment_draft: String::new(),
+            issue_checklist_draft: String::new(),
+            issue_tag_draft: String::new(),
+            issue_blocker_draft: String::new(),
+            sync_decision_note: String::new(),
+            release_note: String::new(),
+            release_signoffs: Vec::new(),
+            release_history: Vec::new(),
+            next_release_sequence: 1,
+            next_issue_comment_sequence: 1,
+            next_issue_assignment_sequence: 1,
             coordination_focus_mode: false,
             coordination_candidates: Vec::new(),
             audit_log: Vec::new(),
@@ -764,7 +949,7 @@ impl State {
 
     fn can_edit_active_view(&self, app: &cadcraft_ui_egui::CadApp) -> bool {
         let index = self.active_native_view_index(app);
-        self.views.get(index).is_some_and(|slot| {
+        self.views.get(index).map_or(false,|slot| {
             slot.mode == ViewMode::Edit
                 && self.has_scope_access(&self.current_account_id, slot.floor_id, slot.discipline, true)
         })
@@ -865,7 +1050,7 @@ impl State {
     fn scope_entity_count(&self, app: &cadcraft_ui_egui::CadApp, floor_id: u64, discipline: Discipline) -> usize {
         let Ok(doc) = app.session.doc() else { return 0 };
         doc.model.iter().filter(|entity| {
-            bim_meta(&entity.common).is_some_and(|m| m.floor_id == floor_id && m.discipline == discipline)
+            bim_meta(&entity.common).map_or(false,|m| m.floor_id == floor_id && m.discipline == discipline)
         }).count()
     }
 
@@ -934,6 +1119,8 @@ impl State {
     }
 
     fn create_issue_from_selection(&mut self, handle: Option<cadcraft_doc::Handle>, target_discipline: Discipline) {
+        let created_at_unix = now_unix_secs();
+        let priority = IssuePriority::P1;
         self.issues.push(CoordinationIssue {
             id: self.next_issue_id,
             floor_id: self.active_floor_id,
@@ -941,13 +1128,286 @@ impl State {
             target_discipline,
             handle,
             assigned_to: self.users.iter().find(|u| u.discipline == target_discipline).map(|u| u.account_id.clone()).unwrap_or_default(),
+            owner_account_id: self.current_account_id.clone(),
+            reviewer_account_id: "local-owner".into(),
+            assignment_history: Vec::new(),
             description: "Kiểm tra phối hợp tại vị trí/đối tượng được chọn".into(),
-            priority: IssuePriority::P1,
+            kind: IssueKind::Coordination,
+            impact: IssueImpact::Medium,
+            priority,
             status: IssueStatus::Open,
+            verification: IssueVerification::NotSubmitted,
+            created_at_unix,
+            due_at_unix: created_at_unix.saturating_add(priority.default_sla_hours() * 3600),
+            comments: Vec::new(),
+            tags: vec!["coordination".into()],
+            watchers: vec![self.current_account_id.clone()],
+            checklist: vec![
+                IssueChecklistItem { label: "Xác nhận vị trí/đối tượng liên quan".into(), done: false },
+                IssueChecklistItem { label: "Thực hiện thay đổi và đồng bộ".into(), done: false },
+                IssueChecklistItem { label: "Điều phối xác nhận trước khi đóng".into(), done: false },
+            ],
+            blocked_by: Vec::new(),
+            escalation_level: 0,
+            last_activity_unix: created_at_unix,
+            viewpoint: None,
+            revision_link: None,
         });
         let issue_id = self.next_issue_id;
         self.next_issue_id += 1;
         self.audit("COORDINATION_ISSUE_CREATED", Some(self.active_floor_id), Some(self.active_discipline), handle, format!("Issue {} -> {}", issue_id, target_discipline.label()));
+    }
+
+    fn select_issue(&mut self, issue_id: u64) {
+        self.selected_issue_id = Some(issue_id);
+        self.issue_comment_draft.clear();
+    }
+
+    fn sync_publish_gate(&self, now: u64) -> (bool, Vec<String>) {
+        let mut blockers=Vec::new();
+        if !self.conflicts.is_empty() { blockers.push(format!("{} conflict revision chưa xử lý",self.conflicts.len())); }
+        let pending_revision=self.issues.iter().filter(|i|i.revision_link.as_ref().map_or(false,|r|!r.applied_to_drawing)).count();
+        if pending_revision>0 { blockers.push(format!("{} Change Set chưa áp dụng vào bản vẽ",pending_revision)); }
+        let blocked=self.issues.iter().filter(|i|self.issue_is_blocked(i)).count();
+        if blocked>0 { blockers.push(format!("{} Issue đang bị blocker",blocked)); }
+        let high_risk=self.issues.iter().filter(|i|i.verification!=IssueVerification::Accepted && self.issue_risk_score(i,now)>=70).count();
+        if high_risk>0 { blockers.push(format!("{} Issue rủi ro cao chưa xác nhận",high_risk)); }
+        let pending_verification=self.issues.iter().filter(|i|i.status==IssueStatus::Resolved && i.verification==IssueVerification::Pending).count();
+        if pending_verification>0 { blockers.push(format!("{} Issue đang chờ xác nhận",pending_verification)); }
+        (blockers.is_empty(),blockers)
+    }
+
+    fn rollback_change_set_queue(&mut self, change_set_id: u64) {
+        if let Some(index)=self.pending_changes.iter().position(|c|c.id==change_set_id) {
+            let removed=self.pending_changes.remove(index);
+            let count=removed.items.len();
+            self.dirty_local_changes=self.dirty_local_changes.saturating_sub(count);
+            self.audit("COORDINATION_CHANGESET_ROLLBACK",Some(self.active_floor_id),Some(self.active_discipline),None,format!("Rollback ChangeSet #{} khỏi hàng đợi đồng bộ ({} item)",change_set_id,count));
+        }
+    }
+
+    fn record_sync_decision(&mut self, decision: &str) {
+        let note=self.sync_decision_note.trim().to_string();
+        let detail=if note.is_empty(){decision.to_string()}else{format!("{} · {}",decision,note)};
+        self.audit("COORDINATION_SYNC_DECISION",Some(self.active_floor_id),Some(self.active_discipline),None,detail);
+        self.sync_decision_note.clear();
+    }
+
+    fn release_signoff_ready(&self) -> bool {
+        [ReleaseSignoffRole::Coordinator,ReleaseSignoffRole::Reviewer,ReleaseSignoffRole::Publisher].into_iter().all(|role|self.release_signoffs.iter().any(|s|s.role==role))
+    }
+
+    fn record_release_signoff(&mut self, role: ReleaseSignoffRole) {
+        let account_id=self.current_account_id.clone();
+        let display_name=if self.auth.display_name.trim().is_empty(){account_id.clone()}else{self.auth.display_name.trim().to_string()};
+        let note=self.release_note.trim().to_string();
+        self.release_signoffs.retain(|s|s.role!=role);
+        self.release_signoffs.push(ReleaseSignoff{role,account_id:account_id.clone(),display_name:display_name.clone(),note:note.clone(),signed_at_unix:now_unix_secs()});
+        self.audit("COORDINATION_RELEASE_SIGNOFF",Some(self.active_floor_id),Some(self.active_discipline),None,format!("{} signed by {} · {}",role.label(),display_name,if note.is_empty(){"Không ghi chú"}else{&note}));
+    }
+
+    fn release_manifest_json(&self) -> serde_json::Value {
+        let now=now_unix_secs();
+        let high_risk=self.issues.iter().filter(|i|i.verification!=IssueVerification::Accepted && self.issue_risk_score(i,now)>=70).count();
+        let (preflight_ready,preflight_blockers)=self.sync_publish_gate(now);
+        serde_json::json!({
+            "release_schema": 1,
+            "project_id": self.project_id,
+            "project_name": self.project_name,
+            "generated_at_unix": now,
+            "release_note": self.release_note,
+            "preflight_ready": preflight_ready,
+            "preflight_blockers": preflight_blockers,
+            "signoff_ready": self.release_signoff_ready(),
+            "signoffs": self.release_signoffs.iter().map(|s|serde_json::json!({"role":s.role.label(),"account_id":s.account_id,"display_name":s.display_name,"note":s.note,"signed_at_unix":s.signed_at_unix})).collect::<Vec<_>>(),
+            "metrics": {
+                "issue_total": self.issues.len(),
+                "high_risk": high_risk,
+                "conflicts": self.conflicts.len(),
+                "dirty_local_changes": self.dirty_local_changes,
+                "pending_change_sets": self.pending_changes.iter().filter(|c|!c.synced).count()
+            },
+            "workspace": self.snapshot_json()
+        })
+    }
+
+    fn publish_release(&mut self) -> bool {
+        let now=now_unix_secs();
+        let (preflight_ready,blockers)=self.sync_publish_gate(now);
+        if !preflight_ready || !self.release_signoff_ready() {
+            self.audit("COORDINATION_RELEASE_BLOCKED",Some(self.active_floor_id),Some(self.active_discipline),None,format!("preflight={} signoff={} blockers={}",preflight_ready,self.release_signoff_ready(),blockers.len()));
+            return false;
+        }
+        let release_id=format!("REL-{:04}",self.next_release_sequence);
+        let published_by=if self.auth.display_name.trim().is_empty(){self.current_account_id.clone()}else{self.auth.display_name.trim().to_string()};
+        let high_risk=self.issues.iter().filter(|i|i.verification!=IssueVerification::Accepted && self.issue_risk_score(i,now)>=70).count();
+        self.release_history.push(ReleaseRecord{sequence:self.next_release_sequence,release_id:release_id.clone(),published_at_unix:now,published_by:published_by.clone(),note:self.release_note.trim().to_string(),signoff_count:self.release_signoffs.len(),issue_count:self.issues.len(),high_risk_count:high_risk});
+        self.next_release_sequence+=1;
+        self.audit("PROJECT_PUBLISHED",Some(self.active_floor_id),Some(self.active_discipline),None,format!("{} project {} published by {} with {} signoffs",release_id,self.project_id,published_by,self.release_signoffs.len()));
+        true
+    }
+
+    fn add_issue_comment(&mut self, issue_id: u64) {
+        let text = self.issue_comment_draft.trim().to_string();
+        if text.is_empty() { return; }
+        let author = self.auth.display_name.trim();
+        let author = if author.is_empty() { self.current_account_id.clone() } else { author.to_string() };
+        let sequence = self.next_issue_comment_sequence;
+        self.next_issue_comment_sequence += 1;
+        let mut audit_data = None;
+        if let Some(issue) = self.issues.iter_mut().find(|i| i.id == issue_id) {
+            issue.comments.push(IssueComment { sequence, author: author.clone(), text: text.clone() });
+            issue.last_activity_unix=now_unix_secs();
+            audit_data = Some((issue.floor_id, issue.target_discipline, issue.handle));
+        }
+        if let Some((floor_id, discipline, handle)) = audit_data {
+            self.audit("COORDINATION_ISSUE_COMMENTED", Some(floor_id), Some(discipline), handle, format!("Issue {} comment #{} by {}", issue_id, sequence, author));
+        }
+        self.issue_comment_draft.clear();
+    }
+
+    fn reassign_issue(&mut self, issue_id: u64, new_assignee: String, note: &str) {
+        let changed_by = self.auth.display_name.trim();
+        let changed_by = if changed_by.is_empty() { self.current_account_id.clone() } else { changed_by.to_string() };
+        let sequence = self.next_issue_assignment_sequence;
+        self.next_issue_assignment_sequence += 1;
+        let mut audit_data = None;
+        if let Some(issue)=self.issues.iter_mut().find(|i|i.id==issue_id) {
+            if issue.assigned_to == new_assignee { return; }
+            let from=issue.assigned_to.clone();
+            issue.assigned_to=new_assignee.clone();
+            issue.assignment_history.push(IssueAssignmentEvent{sequence,from:from.clone(),to:new_assignee.clone(),changed_by:changed_by.clone(),note:note.to_string()});
+            issue.last_activity_unix=now_unix_secs();
+            audit_data=Some((issue.floor_id,issue.target_discipline,issue.handle,from));
+        }
+        if let Some((floor_id,discipline,handle,from))=audit_data { self.audit("COORDINATION_ISSUE_REASSIGNED",Some(floor_id),Some(discipline),handle,format!("Issue {}: {} -> {} by {}",issue_id,from,new_assignee,changed_by)); }
+    }
+
+    fn issue_waiting_on(issue: &CoordinationIssue) -> String {
+        match (issue.status,issue.verification) {
+            (IssueStatus::Open,_) => if issue.assigned_to.trim().is_empty() { "Chờ phân công".into() } else { format!("Chờ {} nhận việc",issue.assigned_to) },
+            (IssueStatus::InProgress,IssueVerification::Rework) => format!("Chờ {} xử lý lại",issue.assigned_to),
+            (IssueStatus::InProgress,_) => format!("Đang chờ {} xử lý",issue.assigned_to),
+            (IssueStatus::Resolved,IssueVerification::Pending) => if issue.reviewer_account_id.trim().is_empty() { "Chờ điều phối xác nhận".into() } else { format!("Chờ {} xác nhận",issue.reviewer_account_id) },
+            (IssueStatus::Resolved,IssueVerification::Accepted) => "Đã xác nhận đóng".into(),
+            _ => "Đang phối hợp".into(),
+        }
+    }
+
+    fn issue_is_overdue(issue: &CoordinationIssue, now: u64) -> bool {
+        issue.status != IssueStatus::Resolved && issue.due_at_unix > 0 && now > issue.due_at_unix
+    }
+
+    fn issue_is_blocked(&self, issue: &CoordinationIssue) -> bool {
+        issue.blocked_by.iter().any(|id| self.issues.iter().any(|other| other.id == *id && !(other.status == IssueStatus::Resolved && other.verification == IssueVerification::Accepted)))
+    }
+
+    fn issue_readiness(&self, issue: &CoordinationIssue) -> (bool, String) {
+        if self.issue_is_blocked(issue) { return (false, "Bị chặn bởi Issue khác".into()); }
+        if issue.assigned_to.trim().is_empty() { return (false, "Chưa có Assignee".into()); }
+        if issue.checklist.iter().any(|item| !item.done) { return (false, "Checklist chưa hoàn tất".into()); }
+        if let Some(link)=&issue.revision_link { if !link.applied_to_drawing { return (false, "Change Set chưa áp dụng vào bản vẽ".into()); } }
+        if issue.verification == IssueVerification::Rework { return (false, "Đang yêu cầu làm lại".into()); }
+        (true, "Sẵn sàng gửi xác nhận".into())
+    }
+
+    fn issue_risk_score(&self, issue: &CoordinationIssue, now: u64) -> u32 {
+        let mut score=match issue.priority { IssuePriority::P0=>40, IssuePriority::P1=>25, IssuePriority::P2=>10 };
+        if Self::issue_is_overdue(issue,now) { score+=25; }
+        if self.issue_is_blocked(issue) { score+=20; }
+        if issue.assigned_to.trim().is_empty() { score+=10; }
+        if issue.verification==IssueVerification::Rework { score+=10; }
+        if issue.revision_link.as_ref().map_or(false,|r|!r.applied_to_drawing) { score+=10; }
+        score.min(100)
+    }
+
+    fn coordination_report_csv(&self) -> String {
+        let now=now_unix_secs();
+        let mut out=String::from("Issue,Priority,Discipline,Assignee,Status,SLA,Escalation,Risk,Blocked,Readiness,Tags\n");
+        for issue in &self.issues {
+            let readiness=self.issue_readiness(issue).1.replace(',',";");
+            let row=format!("ISS-{:03},{},{},{},{},{},{},{},{},{},{}\n",issue.id,issue.priority.label(),issue.target_discipline.label(),issue.assigned_to.replace(',',";"),issue.status.label(),issue_deadline_label(issue,now),issue.escalation_level,self.issue_risk_score(issue,now),self.issue_is_blocked(issue),readiness,issue.tags.join("|"));
+            out.push_str(&row);
+        }
+        out
+    }
+
+    fn add_issue_checklist_item(&mut self, issue_id: u64) {
+        let label=self.issue_checklist_draft.trim().to_string();
+        if label.is_empty(){return;}
+        if let Some(issue)=self.issues.iter_mut().find(|i|i.id==issue_id){issue.checklist.push(IssueChecklistItem{label,done:false});issue.last_activity_unix=now_unix_secs();}
+        self.issue_checklist_draft.clear();
+    }
+
+    fn toggle_issue_watcher(&mut self, issue_id: u64) {
+        let account=self.current_account_id.clone();
+        if let Some(issue)=self.issues.iter_mut().find(|i|i.id==issue_id){
+            if issue.watchers.iter().any(|w|w==&account){issue.watchers.retain(|w|w!=&account);}else{issue.watchers.push(account);}
+            issue.last_activity_unix=now_unix_secs();
+        }
+    }
+
+    fn add_issue_tag(&mut self, issue_id: u64) {
+        let tag=self.issue_tag_draft.trim().trim_start_matches('#').to_ascii_lowercase();
+        if tag.is_empty(){return;}
+        if let Some(issue)=self.issues.iter_mut().find(|i|i.id==issue_id){if !issue.tags.iter().any(|t|t==&tag){issue.tags.push(tag);}issue.last_activity_unix=now_unix_secs();}
+        self.issue_tag_draft.clear();
+    }
+
+    fn add_issue_blocker(&mut self, issue_id: u64) {
+        let raw=self.issue_blocker_draft.trim().trim_start_matches('#').trim_start_matches("ISS-");
+        if let Ok(blocker_id)=raw.parse::<u64>() {
+            if blocker_id!=issue_id && self.issues.iter().any(|i|i.id==blocker_id) {
+                if let Some(issue)=self.issues.iter_mut().find(|i|i.id==issue_id){if !issue.blocked_by.contains(&blocker_id){issue.blocked_by.push(blocker_id);}issue.last_activity_unix=now_unix_secs();}
+            }
+        }
+        self.issue_blocker_draft.clear();
+    }
+
+    fn escalate_overdue_issues(&mut self) {
+        let now=now_unix_secs();
+        let mut audited=Vec::new();
+        for issue in &mut self.issues {
+            if Self::issue_is_overdue(issue,now) {
+                let hours=(now.saturating_sub(issue.due_at_unix)+3599)/3600;
+                let level=if hours>=48{3}else if hours>=24{2}else{1};
+                if level>issue.escalation_level {
+                    issue.escalation_level=level;
+                    issue.last_activity_unix=now;
+                    audited.push((issue.id,issue.floor_id,issue.target_discipline,issue.handle,level,hours));
+                }
+            }
+        }
+        for (id,floor,discipline,handle,level,hours) in audited {self.audit("COORDINATION_ISSUE_ESCALATED",Some(floor),Some(discipline),handle,format!("Issue {} escalated L{} after {}h overdue",id,level,hours));}
+    }
+
+    fn capture_issue_viewpoint(&mut self, issue_id: u64, handles: Vec<cadcraft_doc::Handle>) {
+        let captured_by=if self.auth.display_name.trim().is_empty(){self.current_account_id.clone()}else{self.auth.display_name.trim().to_string()};
+        let mut audit_data=None;
+        if let Some(issue)=self.issues.iter_mut().find(|i|i.id==issue_id){ issue.viewpoint=Some(IssueViewpoint{floor_id:self.active_floor_id,discipline:self.active_discipline,handles:handles.clone(),captured_by:captured_by.clone()}); issue.last_activity_unix=now_unix_secs(); audit_data=Some((issue.floor_id,issue.target_discipline,issue.handle)); }
+        if let Some((floor_id,discipline,handle))=audit_data{self.audit("COORDINATION_VIEWPOINT_CAPTURED",Some(floor_id),Some(discipline),handle,format!("Issue {} viewpoint: {} handles by {}",issue_id,handles.len(),captured_by));}
+    }
+
+    fn capture_issue_revision(&mut self, issue_id: u64, handles: Vec<cadcraft_doc::Handle>) {
+        if handles.is_empty() { return; }
+        let change_set_id=self.next_change_set_id;
+        self.next_change_set_id+=1;
+        let revision_code=format!("CHG-{:04}",change_set_id);
+        let applied_by=if self.auth.display_name.trim().is_empty(){self.current_account_id.clone()}else{self.auth.display_name.trim().to_string()};
+        let items=handles.iter().copied().map(|handle|ChangeItem{handle,operation:ChangeOperation::Update,base_revision:0,local_revision:1}).collect::<Vec<_>>();
+        self.pending_changes.push(ChangeSet{id:change_set_id,account_id:self.current_account_id.clone(),items,synced:false});
+        self.dirty_local_changes=self.pending_changes.iter().filter(|c|!c.synced).map(|c|c.items.len()).sum();
+        let mut audit_data=None;
+        if let Some(issue)=self.issues.iter_mut().find(|i|i.id==issue_id){ issue.revision_link=Some(IssueRevisionLink{change_set_id,revision_code:revision_code.clone(),base_revision:0,target_revision:1,handles:handles.clone(),applied_to_drawing:false,applied_by:String::new()}); issue.last_activity_unix=now_unix_secs(); audit_data=Some((issue.floor_id,issue.target_discipline,issue.handle)); }
+        if let Some((floor_id,discipline,handle))=audit_data{self.audit("COORDINATION_REVISION_LINKED",Some(floor_id),Some(discipline),handle,format!("Issue {} -> {} ({} handles) by {}",issue_id,revision_code,handles.len(),applied_by));}
+    }
+
+    fn mark_issue_revision_applied(&mut self, issue_id: u64) {
+        let applied_by=if self.auth.display_name.trim().is_empty(){self.current_account_id.clone()}else{self.auth.display_name.trim().to_string()};
+        let mut audit_data=None;
+        let mut revision_code=String::new();
+        if let Some(issue)=self.issues.iter_mut().find(|i|i.id==issue_id){ if let Some(link)=issue.revision_link.as_mut(){ link.applied_to_drawing=true; link.applied_by=applied_by.clone(); revision_code=link.revision_code.clone(); audit_data=Some((issue.floor_id,issue.target_discipline,issue.handle)); } }
+        if let Some((floor_id,discipline,handle))=audit_data{self.audit("COORDINATION_REVISION_APPLIED",Some(floor_id),Some(discipline),handle,format!("Issue {} {} applied by {}",issue_id,revision_code,applied_by));}
     }
 
     fn queue_update(&mut self, handle: cadcraft_doc::Handle, base_revision: u64, local_revision: u64) {
@@ -1096,9 +1556,26 @@ impl State {
             "target_discipline": i.target_discipline.label(),
             "handle": i.handle.map(|h| h.hex()),
             "assigned_to": i.assigned_to,
+            "owner_account_id": i.owner_account_id,
+            "reviewer_account_id": i.reviewer_account_id,
+            "assignment_history": i.assignment_history.iter().map(|h| serde_json::json!({"sequence":h.sequence,"from":h.from,"to":h.to,"changed_by":h.changed_by,"note":h.note})).collect::<Vec<_>>(),
             "description": i.description,
+            "kind": i.kind.label(),
+            "impact": i.impact.label(),
             "priority": i.priority.label(),
-            "status": i.status.label()
+            "status": i.status.label(),
+            "verification": i.verification.label(),
+            "created_at_unix": i.created_at_unix,
+            "due_at_unix": i.due_at_unix,
+            "comments": i.comments.iter().map(|c| serde_json::json!({"sequence":c.sequence,"author":c.author,"text":c.text})).collect::<Vec<_>>(),
+            "tags": i.tags,
+            "watchers": i.watchers,
+            "checklist": i.checklist.iter().map(|c| serde_json::json!({"label":c.label,"done":c.done})).collect::<Vec<_>>(),
+            "blocked_by": i.blocked_by,
+            "escalation_level": i.escalation_level,
+            "last_activity_unix": i.last_activity_unix,
+            "viewpoint": i.viewpoint.as_ref().map(|v| serde_json::json!({"floor_id":v.floor_id,"discipline":v.discipline.label(),"handles":v.handles.iter().map(|h|h.hex()).collect::<Vec<_>>(),"captured_by":v.captured_by})),
+            "revision_link": i.revision_link.as_ref().map(|r| serde_json::json!({"change_set_id":r.change_set_id,"revision_code":r.revision_code,"base_revision":r.base_revision,"target_revision":r.target_revision,"handles":r.handles.iter().map(|h|h.hex()).collect::<Vec<_>>(),"applied_to_drawing":r.applied_to_drawing,"applied_by":r.applied_by}))
         })).collect::<Vec<_>>();
         serde_json::json!({
             "version": 2,
@@ -1119,7 +1596,10 @@ impl State {
             "active_floor_id": self.active_floor_id,
             "active_discipline": self.active_discipline.label(),
             "progress": progress,
-            "issues": issues
+            "issues": issues,
+            "release_note": self.release_note,
+            "release_signoffs": self.release_signoffs.iter().map(|s|serde_json::json!({"role":s.role.label(),"account_id":s.account_id,"display_name":s.display_name,"note":s.note,"signed_at_unix":s.signed_at_unix})).collect::<Vec<_>>(),
+            "release_history": self.release_history.iter().map(|r|serde_json::json!({"sequence":r.sequence,"release_id":r.release_id,"published_at_unix":r.published_at_unix,"published_by":r.published_by,"note":r.note,"signoff_count":r.signoff_count,"issue_count":r.issue_count,"high_risk_count":r.high_risk_count})).collect::<Vec<_>>()
         })
     }
 
@@ -1264,17 +1744,62 @@ impl State {
                     target_discipline: item.get("target_discipline")?.as_str().and_then(Discipline::from_label)?,
                     handle,
                     assigned_to: item.get("assigned_to").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+                    owner_account_id: item.get("owner_account_id").and_then(serde_json::Value::as_str).unwrap_or("local-owner").to_string(),
+                    reviewer_account_id: item.get("reviewer_account_id").and_then(serde_json::Value::as_str).unwrap_or("local-owner").to_string(),
+                    assignment_history: item.get("assignment_history").and_then(serde_json::Value::as_array).map(|items| items.iter().filter_map(|h| Some(IssueAssignmentEvent { sequence:h.get("sequence")?.as_u64()?, from:h.get("from").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(), to:h.get("to").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(), changed_by:h.get("changed_by").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(), note:h.get("note").and_then(serde_json::Value::as_str).unwrap_or_default().to_string() })).collect()).unwrap_or_default(),
                     description: item.get("description").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+                    kind: match item.get("kind").and_then(serde_json::Value::as_str) { Some("Clash")=>IssueKind::Clash, Some("RFI")=>IssueKind::Rfi, Some("Thay đổi thiết kế")=>IssueKind::DesignChange, _=>IssueKind::Coordination },
+                    impact: match item.get("impact").and_then(serde_json::Value::as_str) { Some("Nghiêm trọng")=>IssueImpact::Critical, Some("Cao")=>IssueImpact::High, Some("Thấp")=>IssueImpact::Low, _=>IssueImpact::Medium },
                     priority: match item.get("priority").and_then(serde_json::Value::as_str) { Some("P0 Khẩn cấp")=>IssuePriority::P0, Some("P2 Thường")=>IssuePriority::P2, _=>IssuePriority::P1 },
                     status: match item.get("status").and_then(serde_json::Value::as_str) {
                         Some("Đang xử lý") => IssueStatus::InProgress,
                         Some("Đã xử lý") => IssueStatus::Resolved,
                         _ => IssueStatus::Open,
                     },
+                    verification: match item.get("verification").and_then(serde_json::Value::as_str) { Some("Chờ xác nhận")=>IssueVerification::Pending, Some("Đã xác nhận đóng")=>IssueVerification::Accepted, Some("Yêu cầu làm lại")=>IssueVerification::Rework, _=>IssueVerification::NotSubmitted },
+                    created_at_unix: item.get("created_at_unix").and_then(serde_json::Value::as_u64).unwrap_or_else(now_unix_secs),
+                    due_at_unix: item.get("due_at_unix").and_then(serde_json::Value::as_u64).unwrap_or(0),
+                    comments: item.get("comments").and_then(serde_json::Value::as_array).map(|items| items.iter().filter_map(|c| {
+                        Some(IssueComment {
+                            sequence: c.get("sequence").and_then(serde_json::Value::as_u64)?,
+                            author: c.get("author").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+                            text: c.get("text").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+                        })
+                    }).collect()).unwrap_or_default(),
+                    tags: item.get("tags").and_then(serde_json::Value::as_array).map(|items|items.iter().filter_map(|v|v.as_str().map(str::to_string)).collect()).unwrap_or_default(),
+                    watchers: item.get("watchers").and_then(serde_json::Value::as_array).map(|items|items.iter().filter_map(|v|v.as_str().map(str::to_string)).collect()).unwrap_or_default(),
+                    checklist: item.get("checklist").and_then(serde_json::Value::as_array).map(|items|items.iter().filter_map(|c|Some(IssueChecklistItem{label:c.get("label")?.as_str()?.to_string(),done:c.get("done").and_then(serde_json::Value::as_bool).unwrap_or(false)})).collect()).unwrap_or_default(),
+                    blocked_by: item.get("blocked_by").and_then(serde_json::Value::as_array).map(|items|items.iter().filter_map(serde_json::Value::as_u64).collect()).unwrap_or_default(),
+                    escalation_level: item.get("escalation_level").and_then(serde_json::Value::as_u64).unwrap_or(0).min(3) as u8,
+                    last_activity_unix: item.get("last_activity_unix").and_then(serde_json::Value::as_u64).unwrap_or_else(now_unix_secs),
+                    viewpoint: item.get("viewpoint").and_then(|v| if v.is_null(){None}else{Some(v)}).and_then(|v| Some(IssueViewpoint {
+                        floor_id:v.get("floor_id")?.as_u64()?,
+                        discipline:v.get("discipline")?.as_str().and_then(Discipline::from_label)?,
+                        handles:v.get("handles")?.as_array()?.iter().filter_map(|h|h.as_str().and_then(cadcraft_doc::Handle::parse_hex)).collect(),
+                        captured_by:v.get("captured_by").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+                    })),
+                    revision_link: item.get("revision_link").and_then(|v| if v.is_null(){None}else{Some(v)}).and_then(|v| Some(IssueRevisionLink {
+                        change_set_id:v.get("change_set_id")?.as_u64()?,
+                        revision_code:v.get("revision_code").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+                        base_revision:v.get("base_revision").and_then(serde_json::Value::as_u64).unwrap_or(0),
+                        target_revision:v.get("target_revision").and_then(serde_json::Value::as_u64).unwrap_or(1),
+                        handles:v.get("handles")?.as_array()?.iter().filter_map(|h|h.as_str().and_then(cadcraft_doc::Handle::parse_hex)).collect(),
+                        applied_to_drawing:v.get("applied_to_drawing").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                        applied_by:v.get("applied_by").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+                    })),
                 })
             }).collect();
             self.next_issue_id = self.issues.iter().map(|i| i.id).max().unwrap_or(0) + 1;
+            self.next_issue_comment_sequence = self.issues.iter().flat_map(|i| i.comments.iter().map(|c| c.sequence)).max().unwrap_or(0) + 1;
+            self.next_issue_assignment_sequence = self.issues.iter().flat_map(|i| i.assignment_history.iter().map(|h| h.sequence)).max().unwrap_or(0) + 1;
         }
+        self.release_note=value.get("release_note").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+        self.release_signoffs=value.get("release_signoffs").and_then(serde_json::Value::as_array).map(|items|items.iter().filter_map(|item|{
+            let role=match item.get("role")?.as_str()? { "Điều phối"=>ReleaseSignoffRole::Coordinator, "Reviewer"=>ReleaseSignoffRole::Reviewer, "Publisher"=>ReleaseSignoffRole::Publisher, _=>return None };
+            Some(ReleaseSignoff{role,account_id:item.get("account_id").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),display_name:item.get("display_name").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),note:item.get("note").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),signed_at_unix:item.get("signed_at_unix").and_then(serde_json::Value::as_u64).unwrap_or(0)})
+        }).collect()).unwrap_or_default();
+        self.release_history=value.get("release_history").and_then(serde_json::Value::as_array).map(|items|items.iter().filter_map(|item|Some(ReleaseRecord{sequence:item.get("sequence")?.as_u64()?,release_id:item.get("release_id")?.as_str()?.to_string(),published_at_unix:item.get("published_at_unix").and_then(serde_json::Value::as_u64).unwrap_or(0),published_by:item.get("published_by").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),note:item.get("note").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),signoff_count:item.get("signoff_count").and_then(serde_json::Value::as_u64).unwrap_or(0) as usize,issue_count:item.get("issue_count").and_then(serde_json::Value::as_u64).unwrap_or(0) as usize,high_risk_count:item.get("high_risk_count").and_then(serde_json::Value::as_u64).unwrap_or(0) as usize})).collect()).unwrap_or_default();
+        self.next_release_sequence=self.release_history.iter().map(|r|r.sequence).max().unwrap_or(0)+1;
         Ok(())
     }
 
@@ -1306,8 +1831,8 @@ impl State {
     fn has_scope_access(&self, account_id: &str, floor_id: u64, discipline: Discipline, edit: bool) -> bool {
         self.access_rules.iter().any(|rule| {
             rule.account_id == account_id
-                && rule.floor_id.is_none_or(|f| f == floor_id)
-                && rule.discipline.is_none_or(|d| d == discipline)
+                && rule.floor_id.map_or(true,|f| f == floor_id)
+                && rule.discipline.map_or(true,|d| d == discipline)
                 && if edit { rule.can_edit } else { rule.can_view }
         })
     }
@@ -1319,8 +1844,8 @@ impl State {
         self.share_grants.iter().any(|grant| {
             grant.viewer_account_id == viewer
                 && grant.owner_account_id == owner
-                && grant.floor_id.is_none_or(|f| f == floor_id)
-                && grant.discipline.is_none_or(|d| d == discipline)
+                && grant.floor_id.map_or(true,|f| f == floor_id)
+                && grant.discipline.map_or(true,|d| d == discipline)
                 && if edit { grant.can_edit } else { grant.can_view }
         })
     }
@@ -1447,7 +1972,7 @@ pub fn sync_render_filters(app: &mut cadcraft_ui_egui::CadApp, state: &State) {
                 reference_handles.push(entity.handle);
                 continue;
             };
-            let owner_matches = slot.owner_account_id.as_ref().is_none_or(|owner| owner == &meta.owner_account_id);
+            let owner_matches = slot.owner_account_id.as_ref().map_or(true,|owner| owner == &meta.owner_account_id);
             if meta.floor_id == slot.floor_id && meta.discipline == slot.discipline && owner_matches {
                 primary_handles.push(entity.handle);
                 continue;
@@ -1516,6 +2041,18 @@ fn coordination_overview(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, 
     let open_issues=state.issues.iter().filter(|i| i.status==IssueStatus::Open).count();
     let doing_issues=state.issues.iter().filter(|i| i.status==IssueStatus::InProgress).count();
     let resolved_issues=state.issues.iter().filter(|i| i.status==IssueStatus::Resolved).count();
+    let now=now_unix_secs();
+    let overdue_issues=state.issues.iter().filter(|i|State::issue_is_overdue(i,now)).count();
+    let unassigned_issues=state.issues.iter().filter(|i|i.status!=IssueStatus::Resolved && i.assigned_to.trim().is_empty()).count();
+    let pending_verify_issues=state.issues.iter().filter(|i|i.verification==IssueVerification::Pending).count();
+    let blocked_issues=state.issues.iter().filter(|i|state.issue_is_blocked(i)).count();
+    let unapplied_revisions=state.issues.iter().filter(|i|i.revision_link.as_ref().map_or(false,|r|!r.applied_to_drawing)).count();
+    let high_risk_issues=state.issues.iter().filter(|i|state.issue_risk_score(i,now)>=70).count();
+    let escalated_issues=state.issues.iter().filter(|i|i.escalation_level>0).count();
+    let watched_issues=state.issues.iter().filter(|i|i.watchers.iter().any(|w|w==&state.current_account_id)).count();
+    let ready_issues=state.issues.iter().filter(|i|i.status==IssueStatus::InProgress && state.issue_readiness(i).0).count();
+    let total_active=state.issues.iter().filter(|i|i.status!=IssueStatus::Resolved).count().max(1);
+    let sla_health_pct=((total_active.saturating_sub(overdue_issues))*100/total_active) as u32;
     let blockers=health.conflicts+health.unscoped_entities+open_issues;
     let can_close_issue=health.conflicts==0 && state.dirty_local_changes==0;
     let me_name=state.active_user().map(|u|u.display_name.clone()).unwrap_or_else(||state.current_account_id.clone());
@@ -1536,7 +2073,22 @@ fn coordination_overview(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, 
         card(ui,"Issue mở",open_issues.to_string(),format!("{} đang xử lý",doing_issues),egui::Color32::YELLOW);
         card(ui,"Thay đổi chờ đồng bộ",health.pending_changes.to_string(),format!("{} thay đổi local",state.dirty_local_changes),egui::Color32::LIGHT_GREEN);
         card(ui,"Xung đột",health.conflicts.to_string(),if health.conflicts==0{"Không có xung đột".into()}else{"Cần xử lý".into()},egui::Color32::LIGHT_RED);
-        card(ui,"Việc cần xử lý",blockers.to_string(),format!("{} đã hoàn tất",resolved_issues),egui::Color32::GOLD);
+        card(ui,"Rủi ro cao",high_risk_issues.to_string(),format!("{} Issue đã escalation",escalated_issues),egui::Color32::LIGHT_RED);
+        card(ui,"SLA Health",format!("{}%",sla_health_pct),format!("{} quá hạn",overdue_issues),if sla_health_pct>=90{egui::Color32::LIGHT_GREEN}else{egui::Color32::YELLOW});
+        card(ui,"Sẵn sàng xác nhận",ready_issues.to_string(),format!("{} Issue đang theo dõi",watched_issues),egui::Color32::LIGHT_BLUE);
+    });
+    ui.horizontal_wrapped(|ui| {
+        ui.small("Triage nhanh:");
+        if overdue_issues>0 { ui.colored_label(egui::Color32::LIGHT_RED,format!("Quá hạn {}",overdue_issues)); } else { ui.small("Quá hạn 0"); }
+        ui.separator();
+        ui.small(format!("Chưa giao {}",unassigned_issues));
+        ui.separator();
+        ui.small(format!("Chờ xác nhận {}",pending_verify_issues));
+        ui.separator();
+        ui.small(format!("Bị chặn {}",blocked_issues));
+        ui.separator();
+        ui.small(format!("Revision chưa áp dụng {}",unapplied_revisions));
+        if overdue_issues>0 && ui.small_button("Rà soát & escalate SLA").clicked(){state.escalate_overdue_issues();}
     });
 
     ui.add_space(6.0);
@@ -1560,6 +2112,20 @@ fn coordination_overview(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, 
         });
     });
 
+    ui.group(|ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.strong("Heatmap rủi ro");
+            for discipline in Discipline::ALL {
+                let count=state.issues.iter().filter(|i|i.status!=IssueStatus::Resolved && i.target_discipline==discipline && state.issue_risk_score(i,now)>=50).count();
+                let color=if count>=3{egui::Color32::LIGHT_RED}else if count>0{egui::Color32::YELLOW}else{egui::Color32::LIGHT_GREEN};
+                ui.colored_label(color,format!("{}: {}",discipline.label(),count));
+            }
+            ui.separator();
+            if ui.small_button("Xuất báo cáo phối hợp CSV").clicked() {
+                if let Some(path)=rfd::FileDialog::new().add_filter("CSV", &["csv"]).set_file_name("CAD360_COORDINATION_REPORT.csv").save_file(){ let _=std::fs::write(path,state.coordination_report_csv()); }
+            }
+        });
+    });
     ui.add_space(8.0);
     ui.group(|ui| {
         ui.strong("Quy trình phối hợp");
@@ -1611,14 +2177,24 @@ fn coordination_overview(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, 
                         ui.selectable_value(&mut state.issue_priority_filter,None,"Tất cả ưu tiên");
                         for priority in [IssuePriority::P0,IssuePriority::P1,IssuePriority::P2] { ui.selectable_value(&mut state.issue_priority_filter,Some(priority),priority.label()); }
                     });
+                    ui.add_sized([130.0,22.0],egui::TextEdit::singleline(&mut state.issue_assignee_filter).hint_text("Lọc Assignee"));
+                    ui.add_sized([110.0,22.0],egui::TextEdit::singleline(&mut state.issue_tag_filter).hint_text("Lọc #tag"));
                     ui.checkbox(&mut state.issue_only_mine,"Chỉ việc của tôi");
+                    ui.checkbox(&mut state.issue_only_overdue,"Quá hạn");
+                    ui.checkbox(&mut state.issue_only_unassigned,"Chưa giao");
+                    ui.checkbox(&mut state.issue_only_pending_verification,"Chờ xác nhận");
                     ui.checkbox(&mut state.coordination_focus_mode,"Tập trung Issue");
-                    if (!state.issue_search.is_empty() || state.issue_only_mine || state.issue_status_filter!=IssueViewFilter::Active || state.issue_discipline_filter.is_some() || state.issue_priority_filter.is_some()) && ui.small_button("Xóa lọc").clicked() {
+                    if (!state.issue_search.is_empty() || state.issue_only_mine || state.issue_only_overdue || state.issue_only_unassigned || state.issue_only_pending_verification || state.issue_status_filter!=IssueViewFilter::Active || state.issue_discipline_filter.is_some() || state.issue_priority_filter.is_some() || !state.issue_assignee_filter.trim().is_empty() || !state.issue_tag_filter.trim().is_empty()) && ui.small_button("Xóa lọc").clicked() {
                         state.issue_search.clear();
                         state.issue_only_mine=false;
+                        state.issue_only_overdue=false;
+                        state.issue_only_unassigned=false;
+                        state.issue_only_pending_verification=false;
                         state.issue_status_filter=IssueViewFilter::Active;
                         state.issue_discipline_filter=None;
                         state.issue_priority_filter=None;
+                        state.issue_assignee_filter.clear();
+                        state.issue_tag_filter.clear();
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui| {
                         if ui.button("Mở quản lý").clicked(){state.ui_tab=CollaborationTab::Issues;}
@@ -1630,10 +2206,13 @@ fn coordination_overview(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, 
                 let query=state.issue_search.trim().to_ascii_lowercase();
                 let filtered_count=state.issues.iter().filter(|issue| {
                     if !state.issue_status_filter.matches(issue.status) { return false; }
-                    if state.issue_discipline_filter.is_some_and(|d|d!=issue.target_discipline) { return false; }
-                    if state.issue_priority_filter.is_some_and(|p|p!=issue.priority) { return false; }
+                    if state.issue_discipline_filter.map_or(false,|d|d!=issue.target_discipline) { return false; }
+                    if state.issue_priority_filter.map_or(false,|p|p!=issue.priority) { return false; }
                     let mine=issue.assigned_to==me_name || issue.assigned_to==state.current_account_id;
                     if state.issue_only_mine && !mine { return false; }
+                    if state.issue_only_overdue && !State::issue_is_overdue(issue,now) { return false; }
+                    if state.issue_only_unassigned && !issue.assigned_to.trim().is_empty() { return false; }
+                    if state.issue_only_pending_verification && issue.verification!=IssueVerification::Pending { return false; }
                     if query.is_empty() { return true; }
                     let issue_code=format!("ISS-{:03}",issue.id);
                     format!("{} {} {} {}",issue_code,issue.description,issue.assigned_to,issue.target_discipline.label()).to_ascii_lowercase().contains(&query)
@@ -1645,36 +2224,54 @@ fn coordination_overview(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, 
                     if ui.small_button("Chọn tất cả đang lọc").clicked() {
                         state.issue_bulk_selection=state.issues.iter().filter(|issue| {
                             state.issue_status_filter.matches(issue.status)
-                                && state.issue_discipline_filter.is_none_or(|d|d==issue.target_discipline)
-                                && state.issue_priority_filter.is_none_or(|p|p==issue.priority)
+                                && state.issue_discipline_filter.map_or(true,|d|d==issue.target_discipline)
+                                && state.issue_priority_filter.map_or(true,|p|p==issue.priority)
+                                && (assignee_query.is_empty() || issue.assigned_to.to_ascii_lowercase().contains(&assignee_query))
+                                && (tag_query.is_empty() || issue.tags.iter().any(|t|t.to_ascii_lowercase().contains(&tag_query)))
                                 && (!state.issue_only_mine || issue.assigned_to==me_name || issue.assigned_to==state.current_account_id)
-                                && (query.is_empty() || format!("ISS-{:03} {} {} {}",issue.id,issue.description,issue.assigned_to,issue.target_discipline.label()).to_ascii_lowercase().contains(&query))
+                                && (!state.issue_only_overdue || State::issue_is_overdue(issue,now))
+                                && (!state.issue_only_unassigned || issue.assigned_to.trim().is_empty())
+                                && (!state.issue_only_pending_verification || issue.verification==IssueVerification::Pending)
+                                && (query.is_empty() || format!("ISS-{:03} {} {} {} {}",issue.id,issue.description,issue.assigned_to,issue.target_discipline.label(),issue.tags.join(" ")).to_ascii_lowercase().contains(&query))
                         }).map(|i|i.id).collect();
                     }
                     if !state.issue_bulk_selection.is_empty() && ui.small_button("Bỏ chọn").clicked(){state.issue_bulk_selection.clear();}
                     let selected_ids=state.issue_bulk_selection.clone();
                     if !selected_ids.is_empty() && ui.small_button(format!("Nhận {} Issue",selected_ids.len())).clicked() {
-                        for issue in &mut state.issues { if selected_ids.contains(&issue.id) && issue.status==IssueStatus::Open { issue.status=IssueStatus::InProgress; issue.assigned_to=me_name.clone(); } }
+                        for issue in &mut state.issues { if selected_ids.contains(&issue.id) && issue.status==IssueStatus::Open { issue.status=IssueStatus::InProgress; issue.assigned_to=me_name.clone(); issue.last_activity_unix=now; } }
                     }
-                    let done=ui.add_enabled(!selected_ids.is_empty() && can_close_issue,egui::Button::new(format!("Hoàn tất {} Issue",selected_ids.len())).small());
-                    if done.on_hover_text(if can_close_issue{"Hoàn tất hàng loạt các Issue đã chọn"}else{"Cần đồng bộ và xử lý xung đột trước"}).clicked() {
-                        for issue in &mut state.issues { if selected_ids.contains(&issue.id) && issue.status==IssueStatus::InProgress { issue.status=IssueStatus::Resolved; } }
+                    if !selected_ids.is_empty() && ui.small_button("Đặt P0 hàng loạt").clicked() {
+                        for issue in &mut state.issues { if selected_ids.contains(&issue.id) { issue.priority=IssuePriority::P0; issue.due_at_unix=now.saturating_add(IssuePriority::P0.default_sla_hours()*3600); issue.last_activity_unix=now; } }
+                    }
+                    if !selected_ids.is_empty() && ui.small_button("Theo dõi hàng loạt").clicked() {
+                        let account=state.current_account_id.clone();
+                        for issue in &mut state.issues { if selected_ids.contains(&issue.id) && !issue.watchers.contains(&account) { issue.watchers.push(account.clone()); issue.last_activity_unix=now; } }
+                    }
+                    let bulk_ready=!selected_ids.is_empty() && selected_ids.iter().all(|id|state.issues.iter().find(|i|i.id==*id).map_or(false,|i|state.issue_readiness(i).0));
+                    let done=ui.add_enabled(bulk_ready && can_close_issue,egui::Button::new(format!("Hoàn tất {} Issue",selected_ids.len())).small());
+                    if done.on_hover_text(if !can_close_issue{"Cần đồng bộ và xử lý xung đột trước"}else if !bulk_ready{"Một số Issue còn checklist/blocker/revision chưa đạt"}else{"Hoàn tất hàng loạt các Issue đã chọn"}).clicked() {
+                        for issue in &mut state.issues { if selected_ids.contains(&issue.id) && issue.status==IssueStatus::InProgress { issue.status=IssueStatus::Resolved; issue.verification=IssueVerification::Pending; } }
                         state.issue_bulk_selection.clear();
                     }
                 });
                 egui::ScrollArea::vertical().max_height(330.0).show(ui,|ui| {
                     egui::Grid::new("coord_overview_issue_list").striped(true).show(ui,|ui| {
-                        ui.strong("✓"); ui.strong("Mã"); ui.strong("Ưu tiên"); ui.strong("Nội dung"); ui.strong("Bộ môn"); ui.strong("Phụ trách"); ui.strong("Trạng thái"); ui.strong("Tác vụ"); ui.end_row();
+                        ui.strong("✓"); ui.strong("Mã"); ui.strong("Ưu tiên"); ui.strong("Nội dung"); ui.strong("Bộ môn"); ui.strong("Phụ trách"); ui.strong("SLA / Hạn xử lý"); ui.strong("Rủi ro"); ui.strong("Trạng thái"); ui.strong("Tác vụ"); ui.end_row();
                         let mut shown=0usize;
                         for issue in &mut state.issues {
                             if !state.issue_status_filter.matches(issue.status) { continue; }
-                            if state.issue_discipline_filter.is_some_and(|d|d!=issue.target_discipline) { continue; }
-                            if state.issue_priority_filter.is_some_and(|p|p!=issue.priority) { continue; }
+                            if state.issue_discipline_filter.map_or(false,|d|d!=issue.target_discipline) { continue; }
+                            if state.issue_priority_filter.map_or(false,|p|p!=issue.priority) { continue; }
+                            if !assignee_query.is_empty() && !issue.assigned_to.to_ascii_lowercase().contains(&assignee_query) { continue; }
+                            if !tag_query.is_empty() && !issue.tags.iter().any(|t|t.to_ascii_lowercase().contains(&tag_query)) { continue; }
                             let issue_code=format!("ISS-{:03}",issue.id);
                             let mine=issue.assigned_to==me_name || issue.assigned_to==state.current_account_id;
                             if state.issue_only_mine && !mine { continue; }
+                            if state.issue_only_overdue && !State::issue_is_overdue(issue,now) { continue; }
+                            if state.issue_only_unassigned && !issue.assigned_to.trim().is_empty() { continue; }
+                            if state.issue_only_pending_verification && issue.verification!=IssueVerification::Pending { continue; }
                             if !query.is_empty() {
-                                let hay=format!("{} {} {} {}",issue_code,issue.description,issue.assigned_to,issue.target_discipline.label()).to_ascii_lowercase();
+                                let hay=format!("{} {} {} {} {}",issue_code,issue.description,issue.assigned_to,issue.target_discipline.label(),issue.tags.join(" ")).to_ascii_lowercase();
                                 if !hay.contains(&query){continue;}
                             }
                             shown+=1;
@@ -1691,18 +2288,23 @@ fn coordination_overview(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, 
                             } else { ui.label(&issue.description); }
                             ui.label(issue.target_discipline.label());
                             ui.label(if issue.assigned_to.trim().is_empty(){"Chưa giao"}else{issue.assigned_to.as_str()});
+                            let deadline=issue_deadline_label(issue,now);
+                            if deadline.starts_with("Quá hạn"){ui.colored_label(egui::Color32::LIGHT_RED,format!("{} · L{}",deadline,issue.escalation_level));}else{ui.label(deadline);}
+                            let risk=state.issue_risk_score(issue,now);
+                            let risk_color=if risk>=70{egui::Color32::LIGHT_RED}else if risk>=40{egui::Color32::YELLOW}else{egui::Color32::LIGHT_GREEN};
+                            ui.colored_label(risk_color,format!("{}",risk));
                             let status_color=match issue.status { IssueStatus::Open=>egui::Color32::LIGHT_RED, IssueStatus::InProgress=>egui::Color32::LIGHT_BLUE, IssueStatus::Resolved=>egui::Color32::LIGHT_GREEN };
-                            ui.colored_label(status_color,issue.status.label());
+                            ui.colored_label(status_color,if issue.blocked_by.is_empty(){issue.status.label().to_string()}else{format!("{} · chặn {}",issue.status.label(),issue.blocked_by.len())});
                             ui.horizontal(|ui| {
                                 if issue.status==IssueStatus::Open && ui.small_button("Nhận").clicked(){issue.status=IssueStatus::InProgress;issue.assigned_to=me_name.clone();}
                                 let done=ui.add_enabled(issue.status==IssueStatus::InProgress && can_close_issue,egui::Button::new("Hoàn tất").small());
-                                if done.on_hover_text(if can_close_issue{"Đánh dấu đã xử lý"}else{"Cần đồng bộ và xử lý xung đột trước"}).clicked(){issue.status=IssueStatus::Resolved;}
+                                if done.on_hover_text(if can_close_issue{"Gửi điều phối xác nhận"}else{"Cần đồng bộ và xử lý xung đột trước"}).clicked(){issue.status=IssueStatus::Resolved;issue.verification=IssueVerification::Pending;}
                                 if let Some(handle)=issue.handle { if ui.small_button("Định vị").clicked(){app.session.set_selection(vec![handle]);} }
                             });
                             ui.end_row();
                             if shown>=10 { break; }
                         }
-                        if shown==0 { ui.label(""); ui.label("-"); ui.label("-"); ui.label("Không có Issue phù hợp bộ lọc"); ui.label("-"); ui.label("-"); ui.colored_label(egui::Color32::LIGHT_GREEN,"Sạch"); ui.label(""); ui.end_row(); }
+                        if shown==0 { ui.label(""); ui.label("-"); ui.label("-"); ui.label("Không có Issue phù hợp bộ lọc"); ui.label("-"); ui.label("-"); ui.label("-"); ui.colored_label(egui::Color32::LIGHT_GREEN,"Sạch"); ui.label(""); ui.end_row(); }
                     });
                 });
             });
@@ -1759,12 +2361,24 @@ fn coordination_issues(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, st
     let open_count=state.issues.iter().filter(|i|i.status==IssueStatus::Open).count();
     let doing_count=state.issues.iter().filter(|i|i.status==IssueStatus::InProgress).count();
     let done_count=state.issues.iter().filter(|i|i.status==IssueStatus::Resolved).count();
+    let now=now_unix_secs();
+    let overdue_count=state.issues.iter().filter(|i|State::issue_is_overdue(i,now)).count();
+    let unassigned_count=state.issues.iter().filter(|i|i.status!=IssueStatus::Resolved && i.assigned_to.trim().is_empty()).count();
+    let pending_verify_count=state.issues.iter().filter(|i|i.verification==IssueVerification::Pending).count();
+    let blocked_count=state.issues.iter().filter(|i|state.issue_is_blocked(i)).count();
+    let unapplied_count=state.issues.iter().filter(|i|i.revision_link.as_ref().map_or(false,|r|!r.applied_to_drawing)).count();
     ui.horizontal_wrapped(|ui| {
         ui.heading("Issue / Clash");
         ui.separator();
         ui.label(format!("Mở {}",open_count));
         ui.label(format!("Đang xử lý {}",doing_count));
         ui.label(format!("Đã xử lý {}",done_count));
+        if overdue_count>0 { ui.colored_label(egui::Color32::from_rgb(230,90,80),format!("Quá hạn {}",overdue_count)); }
+        ui.label(format!("Chưa giao {}",unassigned_count));
+        ui.label(format!("Chờ xác nhận {}",pending_verify_count));
+        ui.label(format!("Bị chặn {}",blocked_count));
+        ui.label(format!("Revision chưa áp dụng {}",unapplied_count));
+        if overdue_count>0 && ui.small_button("Escalate SLA").clicked(){state.escalate_overdue_issues();}
         ui.separator();
         if ui.button("Quét giao cắt tầng hiện tại").clicked() { state.scan_2d_coordination_candidates(app,state.active_floor_id,20_000); }
         ui.label(format!("Ứng viên: {}",state.coordination_candidates.len()));
@@ -1796,64 +2410,299 @@ fn coordination_issues(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, st
     });
 
     ui.separator();
+    let accepted_issue_ids=state.issues.iter().filter(|i|i.status==IssueStatus::Resolved && i.verification==IssueVerification::Accepted).map(|i|i.id).collect::<Vec<_>>();
     egui::ScrollArea::vertical().max_height(460.0).show(ui,|ui| {
         egui::Grid::new("coord_issues_professional").striped(true).show(ui,|ui| {
-            ui.strong("ID"); ui.strong("Ưu tiên"); ui.strong("Tầng"); ui.strong("Nguồn → Đích"); ui.strong("Đối tượng"); ui.strong("Nội dung cần xử lý"); ui.strong("Phụ trách"); ui.strong("Trạng thái"); ui.strong("Tác vụ"); ui.end_row();
+            ui.strong("ID"); ui.strong("Ưu tiên"); ui.strong("Loại"); ui.strong("Ảnh hưởng"); ui.strong("Tầng"); ui.strong("Nguồn → Đích"); ui.strong("Đối tượng"); ui.strong("Nội dung cần xử lý"); ui.strong("Phụ trách"); ui.strong("SLA / Hạn xử lý"); ui.strong("Trạng thái"); ui.strong("Xác nhận"); ui.strong("Sẵn sàng"); ui.strong("Tác vụ"); ui.end_row();
             for issue in &mut state.issues {
                 ui.label(format!("#{:04}",issue.id));
+                let previous_priority=issue.priority;
                 egui::ComboBox::from_id_salt(("coord_issue_priority",issue.id)).selected_text(issue.priority.label()).show_ui(ui,|ui| {
                     for priority in [IssuePriority::P0,IssuePriority::P1,IssuePriority::P2] { ui.selectable_value(&mut issue.priority,priority,priority.label()); }
+                });
+                if issue.priority!=previous_priority { issue.due_at_unix=now_unix_secs().saturating_add(issue.priority.default_sla_hours()*3600); }
+                egui::ComboBox::from_id_salt(("coord_issue_kind",issue.id)).selected_text(issue.kind.label()).show_ui(ui,|ui| {
+                    for kind in [IssueKind::Clash,IssueKind::Rfi,IssueKind::DesignChange,IssueKind::Coordination] { ui.selectable_value(&mut issue.kind,kind,kind.label()); }
+                });
+                egui::ComboBox::from_id_salt(("coord_issue_impact",issue.id)).selected_text(issue.impact.label()).show_ui(ui,|ui| {
+                    for impact in [IssueImpact::Critical,IssueImpact::High,IssueImpact::Medium,IssueImpact::Low] { ui.selectable_value(&mut issue.impact,impact,impact.label()); }
                 });
                 ui.label(state.floors.iter().find(|f|f.id==issue.floor_id).map(|f|f.name.as_str()).unwrap_or("?"));
                 ui.label(format!("{} → {}",issue.source_discipline.label(),issue.target_discipline.label()));
                 if let Some(handle)=issue.handle { if ui.button(handle.hex()).clicked(){ app.session.set_selection(vec![handle]); } } else { ui.label("-"); }
                 ui.add_sized([210.0,20.0],egui::TextEdit::singleline(&mut issue.description));
                 ui.add_sized([120.0,20.0],egui::TextEdit::singleline(&mut issue.assigned_to));
+                let deadline=issue_deadline_label(issue,now_unix_secs());
+                if deadline.starts_with("Quá hạn") { ui.colored_label(egui::Color32::from_rgb(230,90,80),deadline); } else { ui.label(deadline); }
                 egui::ComboBox::from_id_salt(("coord_issue_status",issue.id)).selected_text(issue.status.label()).show_ui(ui,|ui| {
                     for status in [IssueStatus::Open,IssueStatus::InProgress,IssueStatus::Resolved] { ui.selectable_value(&mut issue.status,status,status.label()); }
                 });
+                let verification_color=match issue.verification { IssueVerification::Accepted=>egui::Color32::LIGHT_GREEN, IssueVerification::Pending=>egui::Color32::YELLOW, IssueVerification::Rework=>egui::Color32::LIGHT_RED, IssueVerification::NotSubmitted=>egui::Color32::GRAY };
+                ui.colored_label(verification_color,issue.verification.label());
+                let blocked=issue.blocked_by.iter().any(|id|!accepted_issue_ids.contains(id));
+                let checklist_ready=issue.checklist.iter().all(|c|c.done);
+                let revision_ready=issue.revision_link.as_ref().map_or(true,|r|r.applied_to_drawing);
+                let ready=!blocked && !issue.assigned_to.trim().is_empty() && checklist_ready && revision_ready && issue.verification!=IssueVerification::Rework;
+                if ready { ui.colored_label(egui::Color32::LIGHT_GREEN,"Sẵn sàng"); } else if blocked { ui.colored_label(egui::Color32::LIGHT_RED,"Bị chặn"); } else { ui.colored_label(egui::Color32::YELLOW,"Thiếu điều kiện"); }
                 ui.horizontal(|ui| {
-                    if issue.status==IssueStatus::Open && ui.button("Nhận").clicked(){ issue.status=IssueStatus::InProgress; }
-                    if issue.status==IssueStatus::InProgress && ui.button("Hoàn tất").clicked(){ issue.status=IssueStatus::Resolved; }
-                    if issue.status==IssueStatus::Resolved && ui.button("Mở lại").clicked(){ issue.status=IssueStatus::Open; }
+                    if issue.status==IssueStatus::Open && ui.button("Nhận").clicked(){ issue.status=IssueStatus::InProgress; issue.verification=IssueVerification::NotSubmitted; issue.last_activity_unix=now; }
+                    if issue.status==IssueStatus::InProgress && ui.add_enabled(ready,egui::Button::new("Gửi xác nhận")).on_hover_text(if ready{"Gửi điều phối xác nhận"}else{"Hoàn tất checklist, blocker và Change Set trước"}).clicked(){ issue.status=IssueStatus::Resolved; issue.verification=IssueVerification::Pending; issue.last_activity_unix=now; }
+                    if issue.status==IssueStatus::Resolved && issue.verification==IssueVerification::Pending && ui.button("Xác nhận đóng").clicked(){ issue.verification=IssueVerification::Accepted; issue.last_activity_unix=now; }
+                    if issue.status==IssueStatus::Resolved && issue.verification==IssueVerification::Pending && ui.button("Yêu cầu làm lại").clicked(){ issue.status=IssueStatus::InProgress; issue.verification=IssueVerification::Rework; issue.last_activity_unix=now; }
+                    if issue.status==IssueStatus::Resolved && ui.button("Mở lại").clicked(){ issue.status=IssueStatus::Open; issue.verification=IssueVerification::NotSubmitted; issue.last_activity_unix=now; }
+                    if ui.button("Chi tiết").clicked(){ state.selected_issue_id=Some(issue.id); }
                 });
                 ui.end_row();
             }
         });
     });
+
+    if let Some(issue_id)=state.selected_issue_id {
+        let selected=state.issues.iter().find(|i|i.id==issue_id).cloned();
+        if let Some(issue)=selected {
+            ui.add_space(8.0);
+            ui.group(|ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.heading(format!("Chi tiết Issue #{:04}",issue.id));
+                    ui.separator();
+                    ui.label(issue.priority.label());
+                    ui.label(issue.kind.label());
+                    ui.label(issue.impact.label());
+                    ui.label(issue.status.label());
+                    ui.label(issue.verification.label());
+                    ui.label(format!("{} → {}",issue.source_discipline.label(),issue.target_discipline.label()));
+                    if let Some(handle)=issue.handle {
+                        if ui.button(format!("Định vị {}",handle.hex())).clicked(){app.session.set_selection(vec![handle]);}
+                    }
+                    if ui.button("Đóng chi tiết").clicked(){state.selected_issue_id=None;}
+                });
+                ui.label(&issue.description);
+                ui.small(format!("Phụ trách: {} · {} trao đổi · SLA {}h · {}",if issue.assigned_to.trim().is_empty(){"Chưa giao"}else{issue.assigned_to.as_str()},issue.comments.len(),issue.priority.default_sla_hours(),issue_deadline_label(&issue,now_unix_secs())));
+                let (ready,readiness_note)=state.issue_readiness(&issue);
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong("Readiness:");
+                    if ready { ui.colored_label(egui::Color32::LIGHT_GREEN,"Sẵn sàng gửi xác nhận"); } else { ui.colored_label(egui::Color32::YELLOW,readiness_note); }
+                    if issue.escalation_level>0 { ui.colored_label(egui::Color32::LIGHT_RED,format!("Escalation L{}",issue.escalation_level)); }
+                    ui.label(format!("Watchers: {}",issue.watchers.len()));
+                    ui.label(format!("Tags: {}",if issue.tags.is_empty(){"-".into()}else{issue.tags.iter().map(|t|format!("#{}",t)).collect::<Vec<_>>().join(" ")}));
+                });
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong("Trách nhiệm:");
+                    ui.label(format!("Owner: {}",issue.owner_account_id));
+                    ui.label(format!("Assignee: {}",if issue.assigned_to.trim().is_empty(){"Chưa giao"}else{issue.assigned_to.as_str()}));
+                    ui.label(format!("Reviewer: {}",issue.reviewer_account_id));
+                    ui.colored_label(egui::Color32::from_rgb(125,190,245),State::issue_waiting_on(&issue));
+                });
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong("Chuyển giao:");
+                    for user in state.users.clone() { if user.account_id!=issue.assigned_to && ui.small_button(format!("Giao {}",user.display_name)).clicked(){state.reassign_issue(issue.id,user.account_id.clone(),"Chuyển giao từ Chi tiết Issue");} }
+                });
+                if !issue.assignment_history.is_empty() {
+                    ui.collapsing(format!("Lịch sử chuyển giao ({})",issue.assignment_history.len()),|ui| { for h in issue.assignment_history.iter().rev().take(8) { ui.small(format!("#{} {} → {} · {} · {}",h.sequence,if h.from.trim().is_empty(){"Chưa giao"}else{h.from.as_str()},h.to,h.changed_by,h.note)); } });
+                }
+                ui.separator();
+                ui.horizontal_wrapped(|ui| {
+                    let watching=issue.watchers.iter().any(|w|w==&state.current_account_id);
+                    if ui.button(if watching{"Bỏ theo dõi"}else{"Theo dõi Issue"}).clicked(){state.toggle_issue_watcher(issue.id);}
+                    ui.add_sized([160.0,22.0],egui::TextEdit::singleline(&mut state.issue_tag_draft).hint_text("tag, ví dụ: shopdrawing"));
+                    if ui.add_enabled(!state.issue_tag_draft.trim().is_empty(),egui::Button::new("Thêm tag")).clicked(){state.add_issue_tag(issue.id);}
+                    for tag in &issue.tags { ui.small(format!("#{}",tag)); }
+                });
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong("Dependency / Blocker:");
+                    if issue.blocked_by.is_empty(){ui.weak("Không bị chặn");}
+                    for blocker in &issue.blocked_by {
+                        let blocker_done=state.issues.iter().find(|i|i.id==*blocker).map_or(false,|i|i.status==IssueStatus::Resolved && i.verification==IssueVerification::Accepted);
+                        if blocker_done { ui.colored_label(egui::Color32::LIGHT_GREEN,format!("#{:04} ✓",blocker)); } else { ui.colored_label(egui::Color32::LIGHT_RED,format!("#{:04} đang chặn",blocker)); }
+                    }
+                    ui.add_sized([120.0,22.0],egui::TextEdit::singleline(&mut state.issue_blocker_draft).hint_text("ISS-0004"));
+                    if ui.add_enabled(!state.issue_blocker_draft.trim().is_empty(),egui::Button::new("Thêm blocker")).clicked(){state.add_issue_blocker(issue.id);}
+                });
+                ui.separator();
+                ui.strong(format!("Checklist xử lý ({}/{})",issue.checklist.iter().filter(|c|c.done).count(),issue.checklist.len()));
+                for (idx,item) in issue.checklist.iter().enumerate() {
+                    let mut done=item.done;
+                    if ui.checkbox(&mut done,&item.label).changed(){if let Some(real)=state.issues.iter_mut().find(|i|i.id==issue.id).and_then(|i|i.checklist.get_mut(idx)){real.done=done;} if let Some(real)=state.issues.iter_mut().find(|i|i.id==issue.id){real.last_activity_unix=now_unix_secs();}}
+                }
+                ui.horizontal(|ui| {
+                    ui.add_sized([360.0,22.0],egui::TextEdit::singleline(&mut state.issue_checklist_draft).hint_text("Thêm bước kiểm tra / nghiệm thu..."));
+                    if ui.add_enabled(!state.issue_checklist_draft.trim().is_empty(),egui::Button::new("Thêm checklist")).clicked(){state.add_issue_checklist_item(issue.id);}
+                });
+                ui.separator();
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong("RFI/BCF workflow:");
+                    ui.label(format!("{} → {} → {}",issue.kind.label(),issue.status.label(),issue.verification.label()));
+                    if issue.status==IssueStatus::Resolved && issue.verification==IssueVerification::Pending { ui.colored_label(egui::Color32::YELLOW,"Đang chờ điều phối xác nhận trước khi đóng."); }
+                    if issue.verification==IssueVerification::Rework { ui.colored_label(egui::Color32::LIGHT_RED,"Issue đã bị trả lại để xử lý tiếp."); }
+                });
+                ui.separator();
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong("BCF Viewpoint:");
+                    let selection=app.session.selection().to_vec();
+                    if ui.add_enabled(!selection.is_empty(),egui::Button::new(format!("Lưu góc nhìn từ {} đối tượng",selection.len()))).clicked(){state.capture_issue_viewpoint(issue.id,selection);}
+                    if let Some(v)=&issue.viewpoint{ ui.label(format!("{} đối tượng · {} · {}",v.handles.len(),v.discipline.label(),v.captured_by)); if ui.button("Khôi phục viewpoint").clicked(){app.session.set_selection(v.handles.clone());} } else { ui.weak("Chưa lưu viewpoint"); }
+                });
+                ui.separator();
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong("Revision / Change Set:");
+                    let selection=app.session.selection().to_vec();
+                    if issue.revision_link.is_none() && ui.add_enabled(!selection.is_empty(),egui::Button::new(format!("Tạo Change Set từ {} đối tượng",selection.len()))).clicked(){state.capture_issue_revision(issue.id,selection);}
+                    if let Some(link)=&issue.revision_link{ ui.label(format!("{} · r{} → r{} · {} đối tượng",link.revision_code,link.base_revision,link.target_revision,link.handles.len())); if ui.button("Định vị thay đổi").clicked(){app.session.set_selection(link.handles.clone());} if !link.applied_to_drawing { if ui.button("Đánh dấu đã áp dụng vào bản vẽ").clicked(){state.mark_issue_revision_applied(issue.id);} } else { ui.colored_label(egui::Color32::LIGHT_GREEN,format!("Đã áp dụng · {}",if link.applied_by.trim().is_empty(){"Không rõ"}else{link.applied_by.as_str()})); } } else { ui.weak("Chưa liên kết Revision/Change Set"); }
+                });
+                ui.separator();
+                ui.strong("Trao đổi / nhật ký xử lý");
+                egui::ScrollArea::vertical().max_height(160.0).show(ui,|ui| {
+                    if issue.comments.is_empty() { ui.weak("Chưa có trao đổi. Thêm ghi chú để lưu lại quyết định phối hợp."); }
+                    for comment in &issue.comments {
+                        ui.group(|ui| {
+                            ui.horizontal_wrapped(|ui| {ui.strong(&comment.author);ui.weak(format!("#{}",comment.sequence));});
+                            ui.label(&comment.text);
+                        });
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.add_sized([420.0,24.0],egui::TextEdit::singleline(&mut state.issue_comment_draft).hint_text("Thêm trao đổi, quyết định hoặc ghi chú xử lý..."));
+                    if ui.add_enabled(!state.issue_comment_draft.trim().is_empty(),egui::Button::new("Gửi trao đổi")).clicked(){state.add_issue_comment(issue.id);}
+                });
+            });
+        }
+    }
 }
 
 fn coordination_sync(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
     let health=state.model_health(app);
+    let now=now_unix_secs();
+    let (publish_ready,publish_blockers)=state.sync_publish_gate(now);
+    let pending_items=state.pending_changes.iter().map(|c|c.items.len()).sum::<usize>();
+    let pending_revisions=state.issues.iter().filter(|i|i.revision_link.as_ref().map_or(false,|r|!r.applied_to_drawing)).count();
+    let high_risk=state.issues.iter().filter(|i|i.verification!=IssueVerification::Accepted && state.issue_risk_score(i,now)>=70).count();
+    let pending_verification=state.issues.iter().filter(|i|i.status==IssueStatus::Resolved && i.verification==IssueVerification::Pending).count();
+    let signoff_ready=state.release_signoff_ready();
+    let release_ready=publish_ready && signoff_ready;
+
+    ui.heading("Trung tâm Đồng bộ & Phát hành");
+    ui.label("Kiểm soát Change Set, revision, conflict, checkpoint và quyết định điều phối trước khi publish. Không phát hành khi preflight còn blocker.");
+    ui.add_space(6.0);
+
     ui.horizontal_wrapped(|ui| {
-        ui.strong("Trạng thái đồng bộ");
-        ui.label(format!("Local: {}",state.dirty_local_changes));
-        ui.label(format!("ChangeSet: {}",state.pending_changes.len()));
-        ui.label(format!("Khóa mềm: {}",state.leases.len()));
-        ui.label(format!("Xung đột: {}",state.conflicts.len()));
-        if state.connection==ConnectionMode::Online && state.dirty_local_changes>0 && ui.button("Đồng bộ ngay").clicked() { state.sync_pending_changes(); }
+        for (title,value,note) in [
+            ("Local changes",state.dirty_local_changes.to_string(),format!("{} item trong ChangeSet",pending_items)),
+            ("Conflict",state.conflicts.len().to_string(),"Revision cần quyết định".into()),
+            ("Revision chưa áp dụng",pending_revisions.to_string(),"Change Set từ Issue".into()),
+            ("Rủi ro cao",high_risk.to_string(),"Risk ≥ 70".into()),
+            ("Chờ xác nhận",pending_verification.to_string(),"RFI/BCF verification".into()),
+        ] {
+            ui.group(|ui| { ui.set_min_width(150.0); ui.small(title); ui.heading(value); ui.small(note); });
+        }
     });
-    if state.connection==ConnectionMode::Offline { ui.colored_label(egui::Color32::YELLOW,"Đang offline: thay đổi chỉ nằm local cho đến khi kết nối server."); }
-    if health.conflicts==0 { ui.colored_label(egui::Color32::LIGHT_GREEN,"Không có xung đột revision."); }
-    else {
-        let conflicts=state.conflicts.clone();
-        egui::Grid::new("coord_sync_conflicts").striped(true).show(ui,|ui| {
-            ui.strong("Đối tượng"); ui.strong("Base"); ui.strong("Local"); ui.strong("Remote"); ui.strong("Xử lý"); ui.end_row();
-            for conflict in conflicts {
-                ui.label(conflict.handle.hex()); ui.label(conflict.base_revision.to_string()); ui.label(conflict.local_revision.to_string()); ui.label(conflict.remote_revision.to_string());
+
+    ui.add_space(6.0);
+    ui.group(|ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.strong("PUBLISH PREFLIGHT");
+            if publish_ready { ui.colored_label(egui::Color32::LIGHT_GREEN,"Sẵn sàng phát hành"); }
+            else { ui.colored_label(egui::Color32::LIGHT_RED,format!("BLOCKED · {} điều kiện",publish_blockers.len())); }
+            if ui.button("Kiểm tra lại").clicked(){state.audit("COORDINATION_PREFLIGHT_CHECK",Some(state.active_floor_id),Some(state.active_discipline),None,format!("ready={} blockers={}",publish_ready,publish_blockers.len()));}
+        });
+        if publish_blockers.is_empty() { ui.small("Không còn conflict, blocker, high-risk pending hoặc Change Set chưa áp dụng."); }
+        else { for blocker in &publish_blockers { ui.colored_label(egui::Color32::YELLOW,format!("• {}",blocker)); } }
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Tạo checkpoint trước đồng bộ").clicked() {
+                if let Some(path)=rfd::FileDialog::new().add_filter("TBT BIM Checkpoint", &["json"]).set_file_name("TBT360_PRE_SYNC_CHECKPOINT.json").save_file() {
+                    if let Ok(data)=serde_json::to_vec_pretty(&state.snapshot_json()) { if std::fs::write(&path,data).is_ok(){state.audit("COORDINATION_PRE_SYNC_CHECKPOINT",Some(state.active_floor_id),Some(state.active_discipline),None,format!("Checkpoint {}",path.display()));} }
+                }
+            }
+            if state.connection==ConnectionMode::Online && state.dirty_local_changes>0 && ui.button("Đồng bộ Change Set").clicked(){state.sync_pending_changes();}
+            if ui.add_enabled(release_ready,egui::Button::new("Publish BIM / Phát hành")).on_hover_text(if release_ready{"Preflight sạch và đủ 3 sign-off"}else{"Cần preflight sạch + đủ Điều phối/Reviewer/Publisher sign-off"}).clicked(){state.publish_release();}
+        });
+    });
+
+    ui.add_space(8.0);
+    ui.group(|ui| {
+        ui.strong("RELEASE SIGN-OFF / PHÊ DUYỆT PHÁT HÀNH");
+        ui.horizontal_wrapped(|ui| {
+            ui.add_sized([420.0,24.0],egui::TextEdit::singleline(&mut state.release_note).hint_text("Release note / phạm vi phát hành / lưu ý bàn giao..."));
+            if ui.button("Ký Điều phối").clicked(){state.record_release_signoff(ReleaseSignoffRole::Coordinator);}
+            if ui.button("Ký Reviewer").clicked(){state.record_release_signoff(ReleaseSignoffRole::Reviewer);}
+            if ui.button("Ký Publisher").clicked(){state.record_release_signoff(ReleaseSignoffRole::Publisher);}
+        });
+        ui.horizontal_wrapped(|ui| {
+            for role in [ReleaseSignoffRole::Coordinator,ReleaseSignoffRole::Reviewer,ReleaseSignoffRole::Publisher] {
+                if let Some(sign)=state.release_signoffs.iter().find(|s|s.role==role) { ui.colored_label(egui::Color32::LIGHT_GREEN,format!("✓ {} · {}",role.label(),sign.display_name)); } else { ui.colored_label(egui::Color32::YELLOW,format!("○ {} chưa ký",role.label())); }
+            }
+            if signoff_ready { ui.colored_label(egui::Color32::LIGHT_GREEN,"Đủ 3 lớp sign-off"); }
+        });
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Xuất Release Manifest JSON").clicked() {
+                if let Some(path)=rfd::FileDialog::new().add_filter("TBT Release Manifest", &["json"]).set_file_name("TBT360_RELEASE_MANIFEST.json").save_file() {
+                    if let Ok(data)=serde_json::to_vec_pretty(&state.release_manifest_json()) { if std::fs::write(&path,data).is_ok(){state.audit("COORDINATION_RELEASE_MANIFEST_EXPORTED",Some(state.active_floor_id),Some(state.active_discipline),None,format!("Release manifest {}",path.display()));} }
+                }
+            }
+            if ui.button("Xóa sign-off").clicked(){state.release_signoffs.clear();state.audit("COORDINATION_RELEASE_SIGNOFF_RESET",Some(state.active_floor_id),Some(state.active_discipline),None,"Release sign-off reset");}
+        });
+        if !state.release_history.is_empty() {
+            ui.collapsing("Lịch sử phát hành",|ui| { for r in state.release_history.iter().rev().take(20){ui.label(format!("{} · {} · {} sign-off · {} Issue · {} high-risk · {}",r.release_id,r.published_by,r.signoff_count,r.issue_count,r.high_risk_count,r.note));} });
+        }
+    });
+
+    ui.add_space(8.0);
+    ui.group(|ui| {
+        ui.strong("CHANGE SET / COMPARE REVISION");
+        if state.pending_changes.is_empty(){ui.weak("Không có Change Set local đang chờ đồng bộ.");}
+        let change_sets=state.pending_changes.clone();
+        egui::Grid::new("coord_sync_changesets").striped(true).show(ui,|ui| {
+            ui.strong("Change Set"); ui.strong("Người tạo"); ui.strong("Items"); ui.strong("Base → Local"); ui.strong("Trạng thái"); ui.strong("Tác vụ"); ui.end_row();
+            for cs in change_sets {
+                let min_base=cs.items.iter().map(|i|i.base_revision).min().unwrap_or(0);
+                let max_local=cs.items.iter().map(|i|i.local_revision).max().unwrap_or(0);
+                ui.label(format!("CHG-{:04}",cs.id)); ui.label(&cs.account_id); ui.label(cs.items.len().to_string()); ui.label(format!("r{} → r{}",min_base,max_local));
+                if cs.synced { ui.colored_label(egui::Color32::LIGHT_GREEN,"Đã đồng bộ"); } else { ui.colored_label(egui::Color32::YELLOW,"Chờ đồng bộ"); }
                 ui.horizontal(|ui| {
-                    if ui.button("Giữ của tôi").clicked(){ state.resolve_conflict(conflict.handle,ConflictResolution::KeepMine); }
-                    if ui.button("Nhận server").clicked(){ state.resolve_conflict(conflict.handle,ConflictResolution::AcceptTheirs); }
-                    if ui.button("Tạo bản sao").clicked(){ state.resolve_conflict(conflict.handle,ConflictResolution::DuplicateMine); }
+                    if !cs.synced && ui.button("Định vị").clicked(){app.session.set_selection(cs.items.iter().map(|i|i.handle).collect());}
+                    if !cs.synced && ui.button("Rollback queue").on_hover_text("Chỉ gỡ ChangeSet khỏi hàng đợi đồng bộ; không tự ý xóa hình học CAD").clicked(){state.rollback_change_set_queue(cs.id);}
                 }); ui.end_row();
             }
         });
-    }
-    ui.separator();
-    ui.collapsing("Nhật ký hoạt động",|ui| {
-        egui::ScrollArea::vertical().max_height(300.0).show(ui,|ui| {
-            for e in state.audit_log.iter().rev().take(200) { ui.label(format!("#{:04}  {}  {}  {}",e.sequence,e.account_id,e.action,e.detail)); }
+    });
+
+    ui.add_space(8.0);
+    ui.group(|ui| {
+        ui.strong("CONFLICT DECISION BOARD");
+        if health.conflicts==0 { ui.colored_label(egui::Color32::LIGHT_GREEN,"Không có xung đột revision."); }
+        else {
+            let conflicts=state.conflicts.clone();
+            egui::Grid::new("coord_sync_conflicts_v2").striped(true).show(ui,|ui| {
+                ui.strong("Đối tượng"); ui.strong("Base"); ui.strong("Local"); ui.strong("Remote"); ui.strong("Delta"); ui.strong("Quyết định"); ui.end_row();
+                for conflict in conflicts {
+                    let local_delta=conflict.local_revision.saturating_sub(conflict.base_revision);
+                    let remote_delta=conflict.remote_revision.saturating_sub(conflict.base_revision);
+                    ui.label(conflict.handle.hex()); ui.label(format!("r{}",conflict.base_revision)); ui.label(format!("r{}",conflict.local_revision)); ui.label(format!("r{}",conflict.remote_revision)); ui.label(format!("Local +{} / Remote +{}",local_delta,remote_delta));
+                    ui.horizontal(|ui| {
+                        if ui.button("Giữ của tôi").clicked(){state.resolve_conflict(conflict.handle,ConflictResolution::KeepMine);}
+                        if ui.button("Nhận server").clicked(){state.resolve_conflict(conflict.handle,ConflictResolution::AcceptTheirs);}
+                        if ui.button("Tạo bản sao").clicked(){state.resolve_conflict(conflict.handle,ConflictResolution::DuplicateMine);}
+                        if ui.button("Định vị").clicked(){app.session.set_selection(vec![conflict.handle]);}
+                    }); ui.end_row();
+                }
+            });
+        }
+    });
+
+    ui.add_space(8.0);
+    ui.group(|ui| {
+        ui.strong("QUYẾT ĐỊNH ĐIỀU PHỐI");
+        ui.horizontal_wrapped(|ui| {
+            ui.add_sized([420.0,24.0],egui::TextEdit::singleline(&mut state.sync_decision_note).hint_text("Ghi chú quyết định / lý do publish / lý do giữ revision..."));
+            if ui.button("Ghi nhận phê duyệt").clicked(){state.record_sync_decision("APPROVED");}
+            if ui.button("Ghi nhận hoãn").clicked(){state.record_sync_decision("DEFERRED");}
+            if ui.button("Yêu cầu sửa trước publish").clicked(){state.record_sync_decision("REWORK_REQUIRED");}
         });
+        ui.small("Mọi quyết định được ghi vào Audit Log để truy vết người và nội dung điều phối.");
+    });
+
+    ui.separator();
+    ui.collapsing("Nhật ký hoạt động / Audit trail",|ui| {
+        egui::ScrollArea::vertical().max_height(300.0).show(ui,|ui| { for e in state.audit_log.iter().rev().take(200){ui.label(format!("#{:04}  {}  {}  {}",e.sequence,e.account_id,e.action,e.detail));} });
     });
 }
 

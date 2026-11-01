@@ -10,7 +10,7 @@ fn main() {
         return;
     }
     let strict = std::env::var_os("CADCRAFT_REQUIRE_WINRES").is_some();
-    let release_version = std::env::var("CAD360_RELEASE_VERSION").unwrap_or_else(|_| "0.68.0".to_string());
+    let release_version = std::env::var("CAD360_RELEASE_VERSION").unwrap_or_else(|_| "0.69.0".to_string());
     let parsed: Result<Vec<u64>, _> = release_version.split('.').map(str::parse::<u64>).collect();
     let parts = match parsed {
         Ok(parts) if (3..=4).contains(&parts.len()) => parts,
