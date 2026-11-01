@@ -1,0 +1,70 @@
+name: Fix CAD360 Clipboard EntityStore Compile v4
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.fix-clipboard-v4'
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-check:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply compile fix and canonical checksum
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          import hashlib
+          path=Path("SOURCE_CAD_R65/crates/engine/src/cmd/clipboard.rs")
+          data=path.read_bytes()
+          old=b"for e in &b.entities {"
+          new=b"for e in b.entities.iter() {"
+          count=data.count(old)
+          if count != 2:
+              raise SystemExit(f"Expected exactly 2 EntityStore loops, found {count}")
+          path.write_bytes(data.replace(old,new))
+          digest=hashlib.sha256(path.read_bytes().replace(b"\r\n",b"\n")).hexdigest()
+          manifest=Path("SHA256SUMS.txt")
+          lines=manifest.read_text(encoding="utf-8").splitlines()
+          target="SOURCE_CAD_R65/crates/engine/src/cmd/clipboard.rs"
+          changed=False
+          out=[]
+          for line in lines:
+              if line.endswith(target):
+                  out.append(f"{digest}  {target}")
+                  changed=True
+              else:
+                  out.append(line)
+          if not changed:
+              raise SystemExit("clipboard.rs checksum entry not found")
+          manifest.write_text("\n".join(out)+"\n",encoding="utf-8",newline="\n")
+          print("canonical clipboard sha256="+digest)
+          '@ | python -
+      - name: Static gate
+        shell: pwsh
+        run: python SOURCE_CAD_R65/scripts/r67_static_gate.py
+      - name: Install Rust
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup default 1.95.0
+      - name: Check engine
+        shell: pwsh
+        working-directory: SOURCE_CAD_R65
+        run: cargo check --locked -p cadcraft-engine
+      - name: Commit fix
+        shell: pwsh
+        run: |
+          git config user.name "CAD360 CI Fix Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add SOURCE_CAD_R65/crates/engine/src/cmd/clipboard.rs SHA256SUMS.txt
+          git commit -m "fix: iterate clipboard EntityStore correctly"
+          git push origin HEAD:main
