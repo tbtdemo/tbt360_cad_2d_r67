@@ -408,3 +408,4 @@ jobs:
             dist/CAD360_VietNam_TBT_Setup.exe
             dist/CAD360_VietNam_TBT_Setup.exe.sha256
           if-no-files-found: error
+# CAD360 0.68.0 gated release
