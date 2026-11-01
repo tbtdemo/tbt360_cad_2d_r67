@@ -35,7 +35,7 @@ jobs:
               raise SystemExit(f"Expected exactly 2 EntityStore loops, found {count}")
           data = data.replace(old, new)
           path.write_bytes(data)
-          digest = hashlib.sha256(path.read_bytes()).hexdigest()
+          digest = hashlib.sha256(path.read_bytes().replace(b"\\r\\n", b"\\n")).hexdigest()
 
           manifest = Path("SHA256SUMS.txt")
           text = manifest.read_text(encoding="utf-8")
