@@ -29,6 +29,8 @@ jobs:
           echo "551800da11af8b47bc00276cc2068a98a7ee1f2991645911bd52a1151a2d9192  /tmp/CAD360_R69_B20_CHANGED_FILES.tar.gz" | sha256sum -c -
           tar -tzf /tmp/CAD360_R69_B20_CHANGED_FILES.tar.gz
           tar -xzf /tmp/CAD360_R69_B20_CHANGED_FILES.tar.gz -C .
+          base64 -d .b20v3/clipboard.b64 > SOURCE_CAD_R65/crates/engine/src/cmd/clipboard.rs
+          echo "fe30bb059f8a5abcbca8b8b0732ef9e90b7ae848cd034c8b8bca850c21758605  SOURCE_CAD_R65/crates/engine/src/cmd/clipboard.rs" | sha256sum -c -
 
       - name: Validate release source
         shell: bash
@@ -51,6 +53,7 @@ jobs:
           git add SOURCE_CAD_R65/apps/cadcraft/build.rs
           git add SOURCE_CAD_R65/apps/cadcraft/src/main.rs
           git add SOURCE_CAD_R65/apps/cadcraft/src/bim_collab.rs
+          git add SOURCE_CAD_R65/crates/engine/src/cmd/clipboard.rs
           git add SOURCE_CAD_R65/scripts/r67_static_gate.py
           git add installer/TBT360_CAD_R65.iss
           git add .github/workflows/parallel-r66.yml
@@ -71,3 +74,5 @@ jobs:
 # rerun-after-b20v3-exact-chunks
 
 # rerun-with-current-transport-sha
+
+# rerun-with-clipboard-baseline
