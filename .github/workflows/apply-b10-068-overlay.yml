@@ -1,0 +1,56 @@
+name: Apply CAD360 0.68.0 Batch10 Overlay
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.b10-release/APPLY_068'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-overlay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rebuild and verify overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .b10-release/part00 .b10-release/part01 .b10-release/part02 .b10-release/part03 .b10-release/part04 .b10-release/part05 .b10-release/part06 .b10-release/part07_10 .b10-release/part11_14 .b10-release/part15_17 | base64 -d > /tmp/CAD360_B10_CRITICAL_OVERLAY_068.tar.xz
+          echo "52a1fe826c9ea4349cfd9ee694baa9b1e3da91c1780107d02b3799a0c3be4927  /tmp/CAD360_B10_CRITICAL_OVERLAY_068.tar.xz" | sha256sum -c -
+          test "$(tar -tJf /tmp/CAD360_B10_CRITICAL_OVERLAY_068.tar.xz | wc -l)" -eq 47
+
+      - name: Overlay source
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -xJf /tmp/CAD360_B10_CRITICAL_OVERLAY_068.tar.xz -C .
+          printf "release=CAD360_0.68.0\noverlay_sha256=52a1fe826c9ea4349cfd9ee694baa9b1e3da91c1780107d02b3799a0c3be4927\nbatch=10\n" > .cad360-release-068
+
+      - name: Static preflight
+        shell: bash
+        run: python SOURCE_CAD_R65/scripts/r67_static_gate.py
+
+      - name: Verify version
+        shell: bash
+        run: |
+          grep -F '0.68.0' SOURCE_CAD_R65/.cargo/config.toml
+          grep -F '0.68.0' SOURCE_CAD_R65/apps/cadcraft/build.rs
+          grep -F '0.68.0' installer/TBT360_CAD_R65.iss
+
+      - name: Commit source
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add SHA256SUMS.txt installer SOURCE_CAD_R65 .github/workflows/parallel-r66.yml .cad360-release-068
+          git commit -m "release: CAD360 0.68.0 batch 10"
+          git push origin HEAD:main
