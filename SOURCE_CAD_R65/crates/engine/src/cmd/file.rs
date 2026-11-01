@@ -5,6 +5,7 @@
 mod pgp;
 mod template;
 
+use std::cell::Cell;
 use std::sync::OnceLock;
 
 use cadcraft_doc::Drawing;
@@ -33,6 +34,7 @@ const MAX_SCRIPT_BYTES: usize = 64 << 20;
 pub type PlotHook = fn(&Drawing, &cadcraft_doc::Space, &Value) -> std::result::Result<Vec<u8>, String>;
 
 /// File format hooks (installed by the app so the engine stays I/O-agnostic and wasm-safe).
+#[derive(Clone, Copy)]
 pub struct IoHooks {
     pub read: fn(&[u8], &str) -> std::result::Result<Drawing, String>,
     pub write: fn(&Drawing, &str) -> std::result::Result<Vec<u8>, String>,
@@ -42,11 +44,19 @@ pub struct IoHooks {
 
 static IO: OnceLock<IoHooks> = OnceLock::new();
 
+thread_local! {
+    // Tests install different I/O adapters and Rust executes tests on multiple worker threads.
+    // Keeping the current thread's adapter prevents one test from permanently winning the
+    // process-wide OnceLock while the global value remains a fallback for runtime worker threads.
+    static IO_LOCAL: Cell<Option<IoHooks>> = const { Cell::new(None) };
+}
+
 pub fn set_io(h: IoHooks) {
+    IO_LOCAL.with(|slot| slot.set(Some(h)));
     let _ = IO.set(h);
 }
-pub fn io() -> Option<&'static IoHooks> {
-    IO.get()
+pub fn io() -> Option<IoHooks> {
+    IO_LOCAL.with(Cell::get).or_else(|| IO.get().copied())
 }
 
 /// An entity as DXF groups and back, for AutoLISP's `entget`, `entmake` and `entmod`
@@ -262,6 +272,27 @@ fn file_name(path: &str) -> String {
     std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.to_string())
 }
 
+/// Fast session-local fingerprint for optimistic file-save conflict detection. This is not a
+/// security hash: it only needs to tell whether the on-disk bytes changed since OPEN/QSAVE.
+fn file_fingerprint(bytes: &[u8]) -> u64 {
+    let mut h = 0xcbf29ce484222325u64;
+    for &b in bytes {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn path_fingerprint(path: &str) -> Option<u64> {
+    crate::capped_read::read_capped(std::path::Path::new(path), MAX_DRAWING_BYTES).ok().map(|bytes| file_fingerprint(&bytes))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn path_fingerprint(_path: &str) -> Option<u64> {
+    None
+}
+
 /// A file read and decoded but not yet added to a [`Session`]. Reading is the slow part of OPEN and
 /// needs no session, so a host can do it on a worker thread and hand the result to
 /// [`finish_open`] on the thread that owns the session.
@@ -312,10 +343,13 @@ fn read_bytes(bytes: &[u8], name: &str, path: Option<String>) -> Result<ReadFile
 
 fn add_read(s: &mut Session, drawing: Drawing, binary_dxf: bool, name: &str, path: Option<String>) -> usize {
     let notes = drawing.read_notes.clone();
+    let fingerprint = path.as_deref().and_then(path_fingerprint);
     let i = s.open_drawing(drawing, &file_name(name), path);
     if let Some(st) = s.docs.get_mut(i) {
-        // QSAVE keeps a binary DXF binary.
+        // QSAVE keeps a binary DXF binary and remembers the exact file bytes we opened so a
+        // different process cannot silently win a later save race.
         st.binary_dxf = binary_dxf;
+        st.file_fingerprint = fingerprint;
     }
     for note in notes {
         s.echo(note);
@@ -402,6 +436,7 @@ fn save_as(s: &mut Session, cmd: &str, path: &str, opts: &SaveAs) -> Result<usiz
     if s.doc()?.refedit.is_some() {
         return Err(bad(cmd, "A block reference is being edited in place: finish with REFCLOSE (Save or Discard) before saving."));
     }
+    ensure_file_not_changed_elsewhere(s, cmd, path)?;
     let bytes = write_bytes(s, cmd, path, opts)?;
     let n = commit_save(s, path, &bytes, store)?;
     if is_drawing_file(path) {
@@ -415,6 +450,26 @@ fn save_as(s: &mut Session, cmd: &str, path: &str, opts: &SaveAs) -> Result<usiz
         }
     }
     Ok(n)
+}
+
+/// Refuse a silent last-writer-wins overwrite when this drawing is being saved back to the same
+/// file it was opened from (or most recently saved to) and another process changed those bytes.
+fn ensure_file_not_changed_elsewhere(s: &Session, cmd: &str, path: &str) -> Result<()> {
+    if !is_drawing_file(path) {
+        return Ok(());
+    }
+    let st = s.state()?;
+    if st.path.as_deref() != Some(path) {
+        return Ok(());
+    }
+    let Some(expected) = st.file_fingerprint else { return Ok(()) };
+    let Some(actual) = path_fingerprint(path) else {
+        return Err(bad(cmd, format!("save conflict: `{path}` was removed or is no longer readable; use SAVEAS to a new file")));
+    };
+    if actual != expected {
+        return Err(bad(cmd, format!("save conflict: `{path}` changed on disk after it was opened/saved; reopen/compare it or use SAVEAS to a new file")));
+    }
+    Ok(())
 }
 
 /// Put saved bytes where the user gets them: natively the file at `path` (written atomically); on
@@ -449,6 +504,7 @@ fn commit_save(s: &mut Session, path: &str, bytes: &[u8], store: impl FnOnce(&st
     st.saved = st.drawing().clone();
     st.path = Some(path.to_string());
     st.title = file_name(path);
+    st.file_fingerprint = Some(file_fingerprint(bytes));
     // A BEgin group still open when the drawing is saved ends there.
     st.end_undo_group();
     Ok(bytes.len())
@@ -726,6 +782,25 @@ mod tests {
         s.execute("document.switch", &json!({"index": 1})).unwrap();
         s.execute("close", &json!({"index": 2})).unwrap();
         assert_eq!(active_title(&s), "Drawing2");
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn qsave_refuses_overwriting_a_file_changed_by_another_process() {
+        let path = std::env::temp_dir().join(format!("cadcraft-save-conflict-{}.dxf", std::process::id()));
+        std::fs::write(&path, b"original").unwrap();
+        let path = path.to_string_lossy().into_owned();
+        let mut s = Session::new();
+        {
+            let st = s.state_mut().unwrap();
+            st.path = Some(path.clone());
+            st.file_fingerprint = path_fingerprint(&path);
+        }
+        assert!(ensure_file_not_changed_elsewhere(&s, "qsave", &path).is_ok());
+        std::fs::write(&path, b"changed elsewhere").unwrap();
+        let e = ensure_file_not_changed_elsewhere(&s, "qsave", &path).unwrap_err().to_string();
+        assert!(e.contains("save conflict") && e.contains("changed on disk"), "{e}");
+        let _ = std::fs::remove_file(path);
     }
 }
 

@@ -1,6 +1,6 @@
 //! Live, read-only quantities from the canonical CAD drawing.
 //! Geometry changes are owned by the native CAD command/undo system.
-//! These are drawing-unit quantities, NOT validated BIM/IFC/steel QTO.
+//! These are drawing-unit quantities linked directly to CAD entities; no separate BIM runtime is required.
 use std::collections::BTreeMap;
 
 use cadcraft_doc::EntityKind;
@@ -157,11 +157,11 @@ impl State {
     }
 
     fn add_measurement_scoped(&mut self, kind: MeasureKind, points: Vec<[f64; 2]>, raw_value: f64, layer: String, scope: &Scope) -> Result<u64, String> {
-        if scope.floor_id == Some(0) { return Err("BIM scope floor_id không hợp lệ".into()); }
-        if scope.owner_account_id.as_deref().is_some_and(|v|v.trim().is_empty()) { return Err("BIM scope owner trống".into()); }
+        if scope.floor_id == Some(0) { return Err("Phạm vi đo bóc floor_id không hợp lệ".into()); }
+        if scope.owner_account_id.as_deref().is_some_and(|v|v.trim().is_empty()) { return Err("Phạm vi đo bóc owner trống".into()); }
         let mut normalized_scope=scope.clone();
         if let Some(value)=scope.discipline.as_deref() {
-            normalized_scope.discipline=Some(normalize_discipline(value).ok_or_else(||"BIM scope discipline không hợp lệ".to_string())?);
+            normalized_scope.discipline=Some(normalize_discipline(value).ok_or_else(||"Phạm vi đo bóc discipline không hợp lệ".to_string())?);
         }
         let id=self.add_measurement(kind,points,raw_value,layer)?;
         if let Some(record)=self.records.iter_mut().find(|r|r.id==id) {
@@ -209,8 +209,20 @@ impl State {
     fn relink_missing_source(&mut self, app:&CadApp, id:u64) -> Result<bool,String> {
         let index=self.records.iter().position(|r|r.id==id).ok_or_else(||"Không tìm thấy record QTO".to_string())?;
         let record=self.records[index].clone();
-        if record.source_path.is_some(){return Ok(false);}
         let expected=record.source_geometry_signature.clone().ok_or_else(||"Record chưa có geometry signature để relink".to_string())?;
+        if let Some(old_path)=record.source_path.as_ref() {
+            let root=cadcraft_doc::Handle::parse_hex(&old_path.root_handle).ok_or_else(||"QTO source_path root_handle không hợp lệ".to_string())?;
+            let mut candidates=nested_source_candidates(app,root).into_iter().filter(|(_,m)|m.kind==record.kind&&geometry_signature(m)==expected).collect::<Vec<_>>();
+            if candidates.len()!=1 { return Ok(false); }
+            let (path,measurement)=candidates.pop().unwrap();
+            self.snapshot();
+            self.records[index].source_handle=Some(root.hex());
+            self.records[index].source_path=Some(path.clone());
+            self.records[index].source_revision=None;
+            self.audit_change(id,"RELINK_NESTED_SOURCE",Some(source_path_json(old_path).to_string()),Some(source_path_json(&path).to_string()));
+            debug_assert_eq!(measurement.source_handle,root);
+            return Ok(true);
+        }
         let doc=app.session.doc().map_err(|e|e.to_string())?;
         let mut candidates=Vec::new();
         for handle in doc.model.handles() {
@@ -220,23 +232,14 @@ impl State {
                 measurements_for_handle(app,handle)
             };
             if !measurements.iter().any(|m|m.kind==record.kind && geometry_signature(m)==expected) { continue; }
-            if let Some(scope)=crate::bim_collab::entity_scope(app,handle) {
-                if record.scope.floor_id!=Some(scope.floor_id)
-                    || record.scope.discipline.as_deref()!=Some(scope.discipline.as_str())
-                    || record.scope.owner_account_id.as_deref()!=Some(scope.owner_account_id.as_str()) { continue; }
-            } else if record.scope.floor_id.is_some() || record.scope.discipline.is_some() || record.scope.owner_account_id.is_some() {
-                continue;
-            }
             candidates.push(handle);
             if candidates.len()>1 { break; }
         }
         if candidates.len()!=1 { return Ok(false); }
         let handle=candidates[0];
-        let source_scope=crate::bim_collab::entity_scope(app,handle);
-        let revision=source_scope.as_ref().map(|x|x.revision);
         self.snapshot();
         self.records[index].source_handle=Some(handle.hex());
-        self.records[index].source_revision=revision;
+        self.records[index].source_revision=None;
         self.audit_change(id,"RELINK_SOURCE",record.source_handle,Some(handle.hex()));
         Ok(true)
     }
@@ -271,16 +274,13 @@ impl State {
             measurements_for_handle(app,handle).into_iter().find(|m|m.kind==kind).ok_or_else(||"Entity nguồn không còn hỗ trợ loại phép đo này".to_string())?
         };
         let old=self.records[index].clone();
-        let source_scope=crate::bim_collab::entity_scope(app,handle);
-        let scope=source_scope.as_ref().map(|x|Scope{floor_id:Some(x.floor_id),discipline:Some(x.discipline.clone()),owner_account_id:Some(x.owner_account_id.clone())}).unwrap_or_else(||old.scope.clone());
-        let revision=source_scope.map(|x|x.revision);
         let signature=geometry_signature(&current);
         self.snapshot();
         self.records[index].points=current.points;
         self.records[index].raw_value=current.raw_value;
         self.records[index].layer=current.layer;
-        self.records[index].scope=scope;
-        self.records[index].source_revision=revision;
+        self.records[index].scope=old.scope.clone();
+        self.records[index].source_revision=None;
         self.records[index].source_geometry_signature=Some(signature);
         self.records[index].status=MeasureStatus::Review;
         self.audit_change(id,"REFRESH_SOURCE",
@@ -388,7 +388,7 @@ fn resolve_source_path(d:&cadcraft_doc::Drawing,path:&SourcePath)->Option<(cadcr
         match step {
             SourcePathStep::BlockMember{block,member_handle}=>{
                 let EntityKind::Insert(ins)=&current.kind else { return None };
-                if !ins.block.eq_ignore_ascii_case(block) { return None; }
+                if !ins.block.eq_ignore_ascii_case(block) && d.block(block).is_some() { return None; }
                 let definition=d.block(&ins.block)?;
                 let member=cadcraft_doc::Handle::parse_hex(member_handle)?;
                 let next=(**definition.entities.get(member)?).clone();
@@ -494,12 +494,12 @@ impl State {
             let scope_value=item.get("scope");
             let floor_id=scope_value.and_then(|v|v.get("floor_id")).and_then(serde_json::Value::as_u64);
             let discipline=match scope_value.and_then(|v|v.get("discipline")).and_then(serde_json::Value::as_str) {
-                Some(value)=>Some(normalize_discipline(value).ok_or_else(||"Measurement BIM discipline không hợp lệ".to_string())?),
+                Some(value)=>Some(normalize_discipline(value).ok_or_else(||"Measurement discipline không hợp lệ".to_string())?),
                 None=>None,
             };
             let owner_account_id=scope_value.and_then(|v|v.get("owner_account_id")).and_then(serde_json::Value::as_str).map(str::to_string);
             if floor_id==Some(0) || discipline.as_deref().is_some_and(|v|v.trim().is_empty()) || owner_account_id.as_deref().is_some_and(|v|v.trim().is_empty()) {
-                return Err("Measurement BIM scope không hợp lệ".into());
+                return Err("Measurement scope không hợp lệ".into());
             }
             let source_handle=item.get("source_handle").and_then(serde_json::Value::as_str).map(str::to_string);
             if source_handle.as_deref().is_some_and(|h|cadcraft_doc::Handle::parse_hex(h).is_none()) { return Err("Measurement source_handle không hợp lệ".into()); }
@@ -570,21 +570,14 @@ fn geometry_signature(measurement:&PendingMeasurement)->String {
     out
 }
 
-fn scope_from_entity_or_active(app:&CadApp, handle:cadcraft_doc::Handle, active_scope:&Scope)->(Scope,Option<u64>) {
-    crate::bim_collab::entity_scope(app,handle).map(|scope|(Scope {
-        floor_id:Some(scope.floor_id),
-        discipline:Some(scope.discipline),
-        owner_account_id:Some(scope.owner_account_id),
-    },Some(scope.revision))).unwrap_or_else(||(active_scope.clone(),None))
+fn scope_from_entity_or_active(_app:&CadApp, _handle:cadcraft_doc::Handle, active_scope:&Scope)->(Scope,Option<u64>) {
+    (active_scope.clone(),None)
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct SourceValidation {
     missing_source: usize,
-    scope_mismatch: usize,
-    stale_revision: usize,
     stale_geometry: usize,
-    identity_collision: usize,
     valid_links: usize,
     invalid_record_ids: std::collections::BTreeSet<u64>,
 }
@@ -625,25 +618,9 @@ fn validate_sources(app:&CadApp,state:&State)->SourceValidation {
             !current_measurements.iter().any(|measurement|measurement.kind==record.kind&&geometry_signature(measurement)==*expected)
         });
 
-        if let Some(entity_scope)=crate::bim_collab::entity_scope(app,handle) {
-            let mismatch=record.scope.floor_id!=Some(entity_scope.floor_id)
-                || record.scope.discipline.as_deref()!=Some(entity_scope.discipline.as_str())
-                || record.scope.owner_account_id.as_deref()!=Some(entity_scope.owner_account_id.as_str());
-            let stale=record.source_revision.is_some_and(|revision|revision!=entity_scope.revision);
-            let identity_collision=entity_scope.entity_handle.is_some_and(|identity|identity!=handle&&doc.model.get(identity).is_some());
-            if mismatch {
-                result.scope_mismatch+=1;result.invalid_record_ids.insert(record.id);
-            } else if identity_collision {
-                result.identity_collision+=1;result.invalid_record_ids.insert(record.id);
-            } else if geometry_stale {
-                result.stale_geometry+=1;result.invalid_record_ids.insert(record.id);
-            } else if stale&&record.source_geometry_signature.is_none() {
-                result.stale_revision+=1;result.invalid_record_ids.insert(record.id);
-            } else {
-                result.valid_links+=1;
-            }
-        } else if geometry_stale {
-            result.stale_geometry+=1;result.invalid_record_ids.insert(record.id);
+        if geometry_stale {
+            result.stale_geometry+=1;
+            result.invalid_record_ids.insert(record.id);
         } else {
             result.valid_links+=1;
         }
@@ -733,7 +710,7 @@ fn count_measurement_for_handle(app:&CadApp,handle:cadcraft_doc::Handle)->Option
 
 fn selected_count_measurements(app: &CadApp) -> Vec<PendingMeasurement> {
     let selected = app.session.selection();
-    let Ok(drawing) = app.session.doc() else { return Vec::new(); };
+    if app.session.doc().is_err() { return Vec::new(); }
     let mut out=Vec::new();
     for handle in selected {
         let Some(measurement)=count_measurement_for_handle(app,handle) else { continue; };
@@ -1078,22 +1055,23 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     let lf = scale.unwrap_or(1.0);
     let af = lf * lf;
 
+    let has_cad_selection = !app.session.selection().is_empty();
     ui.horizontal(|ui| {
-        if ui.button("Thêm phép đo từ CAD đang chọn").clicked() {
+        if ui.add_enabled(has_cad_selection, egui::Button::new("Thêm phép đo từ đối tượng chọn")).on_hover_text("Chọn đối tượng trực tiếp trên bản vẽ CAD trước khi đo").clicked() {
             let measurements=selected_measurements(app);
             for measurement in measurements {
                 let (entity_scope,source_revision)=scope_from_entity_or_active(app,measurement.source_handle,scope);
                 let _=state.add_measurement_from_entity(measurement,&entity_scope,source_revision);
             }
         }
-        if ui.button("Đếm đối tượng CAD đang chọn").clicked() {
+        if ui.add_enabled(has_cad_selection, egui::Button::new("Đếm đối tượng đang chọn")).clicked() {
             let measurements=selected_count_measurements(app);
             for measurement in measurements {
                 let (entity_scope,source_revision)=scope_from_entity_or_active(app,measurement.source_handle,scope);
                 let _=state.add_measurement_from_entity(measurement,&entity_scope,source_revision);
             }
         }
-        if ui.button("Thêm QTO nested từ Block/Array đang chọn").clicked() {
+        if ui.add_enabled(has_cad_selection, egui::Button::new("Đo bóc Block/Array đang chọn")).clicked() {
             let roots=app.session.selection();
             for root in roots {
                 let candidates=nested_source_candidates(app,root);
@@ -1129,7 +1107,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     ui.separator();
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         egui::Grid::new("native_qto_table").striped(true).min_col_width(105.0).show(ui, |ui| {
-            for heading in ["Layer", "Số đối tượng", "LINE", "ARC", "PLINE", "PLINE kín", "CIRCLE", "Khác/chưa đo"] {
+            for heading in ["Lớp", "Số đối tượng", "Đường thẳng", "Cung tròn", "Đa tuyến", "Vùng kín", "Hình tròn", "Chưa hỗ trợ"] {
                 ui.strong(heading);
             }
             ui.end_row();
@@ -1148,10 +1126,10 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
     });
 
     let source_validation=validate_sources(app,state);
-    if source_validation.missing_source>0 || source_validation.scope_mismatch>0 || source_validation.stale_revision>0 || source_validation.stale_geometry>0 || source_validation.identity_collision>0 {
+    if source_validation.missing_source>0 || source_validation.stale_geometry>0 {
         ui.colored_label(egui::Color32::YELLOW,format!(
-            "Liên kết nguồn QTO cần kiểm tra: {} mất nguồn, {} lệch scope, {} lệch revision, {} đổi geometry, {} trùng BIM identity.",
-            source_validation.missing_source,source_validation.scope_mismatch,source_validation.stale_revision,source_validation.stale_geometry,source_validation.identity_collision
+            "Liên kết nguồn QTO cần kiểm tra: {} mất nguồn, {} đối tượng đã thay đổi hình học.",
+            source_validation.missing_source,source_validation.stale_geometry
         ));
         if source_validation.missing_source>0 && ui.button("Tự relink nguồn bị mất (chỉ khi khớp duy nhất)").clicked() {
             let relinked=state.relink_all_missing_sources(app);
@@ -1173,7 +1151,7 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
         let mut action: Option<(u64, u8)> = None;
         egui::ScrollArea::horizontal().show(ui, |ui| {
             egui::Grid::new("native_qto_measurements").striped(true).show(ui, |ui| {
-                for h in ["ID","Handle nguồn","Nguồn","Tầng","Bộ môn","Owner","Loại","Layer","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
+                for h in ["ID","Handle nguồn","Nguồn","Loại","Lớp","Nhóm","Mã CT","Diễn giải","Giá trị","Trạng thái","Thao tác"] { ui.strong(h); }
                 ui.end_row();
                 for record in &state.records {
                     let value = match record.kind {
@@ -1185,23 +1163,22 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
                     ui.label(record.id.to_string());
                     ui.label(record.source_handle.as_deref().unwrap_or("-"));
                     match record_source_state(record,&source_validation) {
-                        "STALE" => { ui.colored_label(egui::Color32::YELLOW,"STALE"); }
+                        "STALE" => { ui.colored_label(egui::Color32::YELLOW,"Cần cập nhật"); }
+                        "Legacy" => { ui.label("Dữ liệu cũ"); }
+                        "OK" => { ui.label("Đồng bộ"); }
                         state => { ui.label(state); }
                     }
-                    ui.label(record.scope.floor_id.map(|v|v.to_string()).unwrap_or_else(||"-".into()));
-                    ui.label(record.scope.discipline.as_deref().unwrap_or("-"));
-                    ui.label(record.scope.owner_account_id.as_deref().unwrap_or("-"));
-                    ui.label(match record.kind { MeasureKind::Length=>"Chiều dài", MeasureKind::Area=>"Diện tích", MeasureKind::Perimeter=>"Chu vi", MeasureKind::Count=>"Đếm" });
+                     ui.label(match record.kind { MeasureKind::Length=>"Chiều dài", MeasureKind::Area=>"Diện tích", MeasureKind::Perimeter=>"Chu vi", MeasureKind::Count=>"Đếm" });
                     ui.label(&record.layer);
                     ui.label(&record.work_group);
                     ui.label(&record.work_code);
                     ui.label(&record.description);
                     ui.label(format!("{value:.3} {unit}"));
-                    ui.label(match record.status { MeasureStatus::Review=>"Review", MeasureStatus::Confirmed=>"Đã xác nhận", MeasureStatus::Excluded=>"Loại" });
+                    ui.label(match record.status { MeasureStatus::Review=>"Chờ xác nhận", MeasureStatus::Confirmed=>"Đã xác nhận", MeasureStatus::Excluded=>"Loại" });
                     ui.horizontal(|ui| {
                         if ui.small_button("✓").on_hover_text("Xác nhận").clicked() { action=Some((record.id,1)); }
                         if ui.small_button("⊘").on_hover_text("Loại khỏi khối lượng").clicked() { action=Some((record.id,2)); }
-                        if ui.small_button("↻").on_hover_text("Cập nhật lại từ entity CAD/BIM nguồn").clicked() { action=Some((record.id,5)); }
+                        if ui.small_button("↻").on_hover_text("Cập nhật lại từ đối tượng CAD nguồn").clicked() { action=Some((record.id,5)); }
                         if ui.small_button("✎").on_hover_text("Sửa mã công tác / diễn giải / ghi chú").clicked() { action=Some((record.id,4)); }
                         if ui.small_button("×").on_hover_text("Xóa phép đo").clicked() { action=Some((record.id,3)); }
                     });
@@ -1251,35 +1228,6 @@ fn draw_contents(ui: &mut egui::Ui, app: &CadApp, state: &mut State, scope: &Sco
             });
         });
     }
-
-    ui.separator();
-    ui.strong("Tổng hợp theo BIM Scope");
-    if !source_validation.invalid_record_ids.is_empty() {
-        ui.colored_label(egui::Color32::YELLOW,format!("{} record liên kết nguồn không hợp lệ đang bị loại khỏi khối lượng BIM xác nhận.",source_validation.invalid_record_ids.len()));
-    }
-    
-    let scoped_groups=scoped_business_quantities_validated(state,lf,af,&source_validation.invalid_record_ids);
-    egui::ScrollArea::horizontal().show(ui,|ui|{
-        egui::Grid::new("native_qto_bim_scope_summary").striped(true).show(ui,|ui|{
-            for h in ["Tầng","Bộ môn","Owner","Nhóm","Mã CT","Review","Đã xác nhận","Loại","Chiều dài","Chu vi","Diện tích","Số lượng"] { ui.strong(h); }
-            ui.end_row();
-            for ((floor_id,discipline,owner,work_group,work_code),q) in &scoped_groups {
-                ui.label(floor_id.map(|v|v.to_string()).unwrap_or_else(||"-".into()));
-                ui.label(discipline);
-                ui.label(owner);
-                ui.label(work_group);
-                ui.label(work_code);
-                ui.label(q.review_records.to_string());
-                ui.label(q.confirmed_records.to_string());
-                ui.label(q.excluded_records.to_string());
-                ui.label(format!("{:.3} {}",q.length,length_unit));
-                ui.label(format!("{:.3} {}",q.perimeter,length_unit));
-                ui.label(format!("{:.3} {}",q.area,area_unit));
-                ui.label(format!("{:.3}",q.count));
-                ui.end_row();
-            }
-        });
-    });
 
     ui.separator();
     ui.strong("Tổng hợp nghiệp vụ đã xác nhận");
@@ -1414,6 +1362,30 @@ mod tests {
         let EntityKind::Line(line)=entity.kind else{panic!("expected line")};
         assert!((line.a.x-10.0).abs()<1e-12&&(line.a.y-20.0).abs()<1e-12);
         assert!((line.b.x-15.0).abs()<1e-12&&(line.b.y-20.0).abs()<1e-12);
+    }
+
+    #[test]
+    fn nested_block_source_path_survives_unambiguous_block_rename() {
+        let (mut d,root,member)=block_member_fixture();
+        let path=SourcePath{root_handle:root.hex(),steps:vec![SourcePathStep::BlockMember{block:"B".into(),member_handle:member.hex()}]};
+        let mut b=d.blocks.remove("B").unwrap();
+        std::sync::Arc::make_mut(&mut b).name="RENAMED".into();
+        d.blocks.insert("RENAMED".into(),b);
+        d.modify_entity(root,|e|{let EntityKind::Insert(ins)=&mut e.kind else{return};ins.block="RENAMED".into();}).unwrap();
+        let (entity,_)=resolve_source_path(&d,&path).expect("source path should follow an unambiguous block rename");
+        let EntityKind::Line(line)=entity.kind else{panic!("expected line")};
+        assert!((line.b.x-line.a.x-5.0).abs()<1e-12);
+    }
+
+    #[test]
+    fn nested_block_source_path_does_not_drift_when_old_block_still_exists() {
+        let (mut d,root,member)=block_member_fixture();
+        let path=SourcePath{root_handle:root.hex(),steps:vec![SourcePathStep::BlockMember{block:"B".into(),member_handle:member.hex()}]};
+        let mut renamed=(*d.block("B").unwrap()).clone();
+        renamed.name="RENAMED".into();
+        d.blocks.insert("RENAMED".into(),std::sync::Arc::new(renamed));
+        d.modify_entity(root,|e|{let EntityKind::Insert(ins)=&mut e.kind else{return};ins.block="RENAMED".into();}).unwrap();
+        assert!(resolve_source_path(&d,&path).is_none(),"an existing old block name makes the provenance ambiguous");
     }
 
     #[test]
@@ -1717,11 +1689,187 @@ mod tests {
     }
 
     #[test]
-    fn cad_only_source_still_uses_geometry_guard_without_bim_revision() {
-        let has_bim_scope=false;
-        let geometry_stale=true;
-        let invalid=!has_bim_scope && geometry_stale;
-        assert!(invalid);
+    fn nested_qto_relinks_after_member_handles_change_on_reload() {
+        let (mut d,root,old_member)=block_member_fixture();
+        let old_path=SourcePath{root_handle:root.hex(),steps:vec![SourcePathStep::BlockMember{block:"B".into(),member_handle:old_member.hex()}]};
+        let mut app=CadApp::new(cadcraft_engine::Session::new(),cadcraft_ui_egui::Services::default());
+        *app.session.doc_mut().unwrap()=d.clone();
+        let mut state=State::default();
+        let id=state.add_measurement_from_path(&app,old_path.clone(),MeasureKind::Length,&Scope::default()).unwrap();
+        let expected=state.records[0].source_geometry_signature.clone().unwrap();
+
+        let new_member=cadcraft_doc::Handle(0x44);
+        let mut b=(*d.block("B").unwrap()).clone();
+        let old=(**b.entities.get(old_member).unwrap()).clone();
+        let mut replacement=old;
+        replacement.handle=new_member;
+        b.entities=cadcraft_doc::EntityStore::new();
+        b.entities.push(replacement);
+        d.blocks.insert("B".into(),std::sync::Arc::new(b));
+        *app.session.doc_mut().unwrap()=d;
+
+        assert!(resolve_source_path(app.session.doc().unwrap(),&old_path).is_none());
+        assert!(state.relink_missing_source(&app,id).unwrap());
+        let path=state.records[0].source_path.as_ref().unwrap();
+        assert_eq!(path.steps,vec![SourcePathStep::BlockMember{block:"B".into(),member_handle:new_member.hex()}]);
+        assert_eq!(state.records[0].source_geometry_signature.as_deref(),Some(expected.as_str()));
+        assert!(!validate_sources(&app,&state).invalid_record_ids.contains(&id));
+    }
+
+    #[test]
+    fn cad_qto_source_becomes_stale_after_move_and_valid_again_after_undo() {
+        let mut app=CadApp::new(cadcraft_engine::Session::new(),cadcraft_ui_egui::Services::default());
+        let handle=app.session.doc_mut().unwrap().add(
+            &cadcraft_doc::Space::Model,
+            cadcraft_doc::Common{layer:"A-WALL".into(),..Default::default()},
+            EntityKind::Line(cadcraft_doc::Line{
+                a:cadcraft_geom::Vec3::new(0.0,0.0,0.0),
+                b:cadcraft_geom::Vec3::new(10.0,0.0,0.0),
+            }),
+        ).unwrap();
+        app.session.set_selection(vec![handle]);
+        let source=selected_measurements(&app).into_iter().next().unwrap();
+        let mut state=State::default();
+        let id=state.add_measurement_from_entity(source,&Scope::default(),None).unwrap();
+
+        let initial=validate_sources(&app,&state);
+        assert!(!initial.invalid_record_ids.contains(&id));
+
+        app.session.execute("move",&serde_json::json!({"handles":[handle.hex()],"delta":[5,0]})).unwrap();
+        let moved=validate_sources(&app,&state);
+        assert!(moved.invalid_record_ids.contains(&id));
+        assert!(moved.stale_geometry>0);
+
+        app.session.execute("undo",&serde_json::json!({})).unwrap();
+        let undone=validate_sources(&app,&state);
+        assert!(!undone.invalid_record_ids.contains(&id));
+        assert_eq!(undone.stale_geometry,0);
+    }
+
+    #[test]
+    fn cad_qto_refresh_after_move_updates_value_signature_and_returns_to_valid_review() {
+        let mut app=CadApp::new(cadcraft_engine::Session::new(),cadcraft_ui_egui::Services::default());
+        let handle=app.session.doc_mut().unwrap().add(
+            &cadcraft_doc::Space::Model,
+            cadcraft_doc::Common{layer:"A-WALL".into(),..Default::default()},
+            EntityKind::Line(cadcraft_doc::Line{
+                a:cadcraft_geom::Vec3::new(0.0,0.0,0.0),
+                b:cadcraft_geom::Vec3::new(10.0,0.0,0.0),
+            }),
+        ).unwrap();
+        app.session.set_selection(vec![handle]);
+        let source=selected_measurements(&app).into_iter().find(|m|m.kind==MeasureKind::Length).unwrap();
+        let mut state=State::default();
+        let id=state.add_measurement_from_entity(source,&Scope::default(),None).unwrap();
+        assert!(state.set_status(id,MeasureStatus::Confirmed));
+
+        app.session.execute("scale",&serde_json::json!({"handles":[handle.hex()],"base":[0,0],"factor":2.0})).unwrap();
+        let stale=validate_sources(&app,&state);
+        assert!(stale.invalid_record_ids.contains(&id));
+        assert_eq!(state.records[0].raw_value,10.0);
+
+        state.refresh_from_source(&app,id).unwrap();
+        assert_eq!(state.records[0].raw_value,20.0);
+        assert_eq!(state.records[0].status,MeasureStatus::Review);
+        assert!(state.records[0].source_geometry_signature.is_some());
+        let refreshed=validate_sources(&app,&state);
+        assert!(!refreshed.invalid_record_ids.contains(&id));
+        assert_eq!(refreshed.valid_links,1);
+    }
+
+    #[test]
+    fn cad_qto_layer_change_marks_source_stale_until_refresh() {
+        let mut app=CadApp::new(cadcraft_engine::Session::new(),cadcraft_ui_egui::Services::default());
+        let handle=app.session.doc_mut().unwrap().add(
+            &cadcraft_doc::Space::Model,
+            cadcraft_doc::Common{layer:"A-WALL".into(),..Default::default()},
+            EntityKind::Line(cadcraft_doc::Line{a:cadcraft_geom::Vec3::ZERO,b:cadcraft_geom::Vec3::new(5.0,0.0,0.0)}),
+        ).unwrap();
+        app.session.set_selection(vec![handle]);
+        let source=selected_measurements(&app).into_iter().find(|m|m.kind==MeasureKind::Length).unwrap();
+        let mut state=State::default();
+        let id=state.add_measurement_from_entity(source,&Scope::default(),None).unwrap();
+
+        app.session.doc_mut().unwrap().modify_entity(handle,|e|e.common.layer="A-EXIST".into()).unwrap();
+        let stale=validate_sources(&app,&state);
+        assert!(stale.invalid_record_ids.contains(&id));
+
+        state.refresh_from_source(&app,id).unwrap();
+        assert_eq!(state.records[0].layer,"A-EXIST");
+        assert!(!validate_sources(&app,&state).invalid_record_ids.contains(&id));
+    }
+
+    #[test]
+    fn cad_qto_deleted_source_can_relink_only_to_one_unique_matching_geometry() {
+        let mut app=CadApp::new(cadcraft_engine::Session::new(),cadcraft_ui_egui::Services::default());
+        let old=app.session.doc_mut().unwrap().add(
+            &cadcraft_doc::Space::Model,
+            cadcraft_doc::Common{layer:"A-WALL".into(),..Default::default()},
+            EntityKind::Line(cadcraft_doc::Line{a:cadcraft_geom::Vec3::ZERO,b:cadcraft_geom::Vec3::new(7.0,0.0,0.0)}),
+        ).unwrap();
+        app.session.set_selection(vec![old]);
+        let source=selected_measurements(&app).into_iter().find(|m|m.kind==MeasureKind::Length).unwrap();
+        let mut state=State::default();
+        let id=state.add_measurement_from_entity(source,&Scope::default(),None).unwrap();
+        app.session.doc_mut().unwrap().remove_entity(old);
+        assert_eq!(validate_sources(&app,&state).missing_source,1);
+
+        let replacement=app.session.doc_mut().unwrap().add(
+            &cadcraft_doc::Space::Model,
+            cadcraft_doc::Common{layer:"A-WALL".into(),..Default::default()},
+            EntityKind::Line(cadcraft_doc::Line{a:cadcraft_geom::Vec3::ZERO,b:cadcraft_geom::Vec3::new(7.0,0.0,0.0)}),
+        ).unwrap();
+        assert_ne!(replacement,old);
+        assert!(state.relink_missing_source(&app,id).unwrap());
+        let replacement_hex=replacement.hex();
+        assert_eq!(state.records[0].source_handle.as_deref(),Some(replacement_hex.as_str()));
+        assert!(!validate_sources(&app,&state).invalid_record_ids.contains(&id));
+
+        app.session.doc_mut().unwrap().remove_entity(replacement);
+        let _a=app.session.doc_mut().unwrap().add(
+            &cadcraft_doc::Space::Model,
+            cadcraft_doc::Common{layer:"A-WALL".into(),..Default::default()},
+            EntityKind::Line(cadcraft_doc::Line{a:cadcraft_geom::Vec3::ZERO,b:cadcraft_geom::Vec3::new(7.0,0.0,0.0)}),
+        ).unwrap();
+        let _b=app.session.doc_mut().unwrap().add(
+            &cadcraft_doc::Space::Model,
+            cadcraft_doc::Common{layer:"A-WALL".into(),..Default::default()},
+            EntityKind::Line(cadcraft_doc::Line{a:cadcraft_geom::Vec3::ZERO,b:cadcraft_geom::Vec3::new(7.0,0.0,0.0)}),
+        ).unwrap();
+        assert!(!state.relink_missing_source(&app,id).unwrap(),"ambiguous geometry must never relink silently");
+    }
+
+    #[test]
+    fn cad_qto_relink_is_undoable_and_redo_restores_the_same_replacement_handle() {
+        let mut app=CadApp::new(cadcraft_engine::Session::new(),cadcraft_ui_egui::Services::default());
+        let old=app.session.doc_mut().unwrap().add(
+            &cadcraft_doc::Space::Model,
+            cadcraft_doc::Common{layer:"A-WALL".into(),..Default::default()},
+            EntityKind::Line(cadcraft_doc::Line{a:cadcraft_geom::Vec3::ZERO,b:cadcraft_geom::Vec3::new(9.0,0.0,0.0)}),
+        ).unwrap();
+        app.session.set_selection(vec![old]);
+        let source=selected_measurements(&app).into_iter().find(|m|m.kind==MeasureKind::Length).unwrap();
+        let mut state=State::default();
+        let id=state.add_measurement_from_entity(source,&Scope::default(),None).unwrap();
+        let old_hex=old.hex();
+
+        app.session.doc_mut().unwrap().remove_entity(old);
+        let replacement=app.session.doc_mut().unwrap().add(
+            &cadcraft_doc::Space::Model,
+            cadcraft_doc::Common{layer:"A-WALL".into(),..Default::default()},
+            EntityKind::Line(cadcraft_doc::Line{a:cadcraft_geom::Vec3::ZERO,b:cadcraft_geom::Vec3::new(9.0,0.0,0.0)}),
+        ).unwrap();
+        let replacement_hex=replacement.hex();
+        assert!(state.relink_missing_source(&app,id).unwrap());
+        assert_eq!(state.records[0].source_handle.as_deref(),Some(replacement_hex.as_str()));
+
+        assert!(state.undo_measurement_change());
+        assert_eq!(state.records[0].source_handle.as_deref(),Some(old_hex.as_str()),"QTO undo must restore the previous source identity");
+        assert_eq!(validate_sources(&app,&state).missing_source,1,"the old CAD handle is still missing after undoing only the QTO relink");
+
+        assert!(state.redo_measurement_change());
+        assert_eq!(state.records[0].source_handle.as_deref(),Some(replacement_hex.as_str()),"QTO redo must restore the exact replacement identity");
+        assert!(!validate_sources(&app,&state).invalid_record_ids.contains(&id));
     }
 
     #[test]
@@ -1783,16 +1931,6 @@ mod tests {
     }
 
     #[test]
-    fn identity_collision_policy_only_blocks_when_original_identity_still_exists() {
-        let current=cadcraft_doc::Handle(0x55);
-        let claimed=cadcraft_doc::Handle(0x2A);
-        let original_still_exists=true;
-        assert!(claimed!=current && original_still_exists);
-        let original_still_exists=false;
-        assert!(!(claimed!=current && original_still_exists));
-    }
-
-    #[test]
     fn source_state_labels_legacy_ok_and_stale_records() {
         let mut state=State::default();
         let legacy=state.add_measurement(MeasureKind::Count,Vec::new(),1.0,"A".into()).unwrap();
@@ -1810,10 +1948,7 @@ mod tests {
     fn source_validation_default_has_no_false_errors() {
         let validation=SourceValidation::default();
         assert_eq!(validation.missing_source,0);
-        assert_eq!(validation.scope_mismatch,0);
-        assert_eq!(validation.stale_revision,0);
         assert_eq!(validation.stale_geometry,0);
-        assert_eq!(validation.identity_collision,0);
         assert_eq!(validation.valid_links,0);
     }
 
@@ -1855,14 +1990,34 @@ mod tests {
     }
 
     #[test]
-    fn count_measurements_stay_one_record_per_selected_entity_for_individual_scope() {
-        let pending=PendingMeasurement{kind:MeasureKind::Count,points:Vec::new(),raw_value:1.0,layer:"DEVICE".into(),source_handle:cadcraft_doc::Handle(1)};
-        assert_eq!(pending.raw_value,1.0);
-        assert_eq!(pending.source_handle,cadcraft_doc::Handle(1));
+    fn selected_cad_line_produces_live_length_and_count_measurements() {
+        let mut app=CadApp::new(cadcraft_engine::Session::new(),cadcraft_ui_egui::Services::default());
+        let handle=app.session.doc_mut().unwrap().add(
+            &cadcraft_doc::Space::Model,
+            cadcraft_doc::Common{layer:"A-WALL".into(),..Default::default()},
+            EntityKind::Line(cadcraft_doc::Line{
+                a:cadcraft_geom::Vec3::new(0.0,0.0,0.0),
+                b:cadcraft_geom::Vec3::new(3.0,4.0,0.0),
+            }),
+        ).unwrap();
+        app.session.set_selection(vec![handle]);
+
+        let measured=selected_measurements(&app);
+        assert_eq!(measured.len(),1);
+        assert_eq!(measured[0].kind,MeasureKind::Length);
+        assert!((measured[0].raw_value-5.0).abs()<1e-12);
+        assert_eq!(measured[0].layer,"A-WALL");
+        assert_eq!(measured[0].source_handle,handle);
+
+        let counted=selected_count_measurements(&app);
+        assert_eq!(counted.len(),1);
+        assert_eq!(counted[0].kind,MeasureKind::Count);
+        assert_eq!(counted[0].raw_value,1.0);
+        assert_eq!(counted[0].source_handle,handle);
     }
 
     #[test]
-    fn scoped_measurement_roundtrip_preserves_bim_scope_and_separates_totals() {
+    fn scoped_measurement_roundtrip_preserves_cad_scope_and_separates_totals() {
         let mut state=State{drawing_distance:1.0,real_distance_m:1.0,..Default::default()};
         let floor1=Scope{floor_id:Some(1),discipline:Some("Kiến trúc".into()),owner_account_id:Some("u1".into())};
         let floor2=Scope{floor_id:Some(2),discipline:Some("Kiến trúc".into()),owner_account_id:Some("u1".into())};

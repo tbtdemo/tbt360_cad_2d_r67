@@ -50,7 +50,7 @@ fn control_methods_matches_the_documented_table() {
 #[test]
 fn every_listed_method_is_answered() {
     let mut app = app();
-    let missing = std::env::temp_dir().join("cadcraft-843-no-such-dir").join("x.dxf");
+    let missing = std::env::temp_dir().join(format!("cadcraft-843-no-such-dir-{}", std::process::id())).join("x.dxf");
     let params = json!({"path": missing.to_string_lossy()});
     for m in listed(&mut app) {
         let name = m["method"].as_str().unwrap_or_default();

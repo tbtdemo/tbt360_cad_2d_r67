@@ -342,7 +342,7 @@ fn about(ctx: &egui::Context, open: &mut bool) {
                 2 => crate::credits::models_ui(ui),
                 _ => {
                     ui.heading("CAD 360 Việt Nam - TBT");
-                    ui.label(crate::tf!("Version {version}", version = env!("CARGO_PKG_VERSION")));
+                    ui.label(crate::tf!("Version {version}", version = option_env!("CAD360_RELEASE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))));
                     ui.label(crate::tl!("Native CAD design and drafting application written in Rust."));
                     ui.add_space(6.0);
                     ui.label(RichText::new(crate::tl!("CAD 360 Viet Nam by TBT Viet Nam, developed on the open-source CADCraft foundation while preserving the applicable license obligations.")).color(t.text_dim));

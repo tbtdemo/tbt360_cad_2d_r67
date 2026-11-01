@@ -430,6 +430,34 @@ mod tests {
     use std::net::TcpListener;
     use std::sync::Arc;
 
+    fn accept_with_timeout(listener: &TcpListener, timeout: Duration) -> std::net::TcpStream {
+        listener.set_nonblocking(true).unwrap();
+        let start = std::time::Instant::now();
+        loop {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    stream.set_nonblocking(false).unwrap();
+                    stream.set_read_timeout(Some(timeout)).unwrap();
+                    stream.set_write_timeout(Some(timeout)).unwrap();
+                    return stream;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock && start.elapsed() < timeout => std::thread::sleep(Duration::from_millis(10)),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => panic!("accept timed out after {timeout:?}"),
+                Err(e) => panic!("accept failed: {e}"),
+            }
+        }
+    }
+
+    fn join_with_timeout<T>(handle: std::thread::JoinHandle<T>, timeout: Duration, what: &str) -> T {
+        let start = std::time::Instant::now();
+        while !handle.is_finished() {
+            if start.elapsed() >= timeout { panic!("{what} did not finish within {timeout:?}"); }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        handle.join().unwrap_or_else(|_| panic!("{what} panicked"))
+    }
+
+
     /// A server that reads one request per connection and closes without replying must not see the request twice.
     #[test]
     fn lost_reply_to_a_mutation_is_not_resent() {
@@ -437,8 +465,7 @@ mod tests {
         let addr = listener.local_addr().unwrap().to_string();
         let server = std::thread::spawn(move || {
             let mut requests = 0;
-            listener.set_nonblocking(false).unwrap();
-            let (conn, _) = listener.accept().unwrap();
+            let conn = accept_with_timeout(&listener, Duration::from_secs(5));
             let mut line = String::new();
             BufReader::new(conn).read_line(&mut line).unwrap();
             requests += 1;
@@ -452,7 +479,7 @@ mod tests {
         remote.token = Some("stale-token".into());
         let err = remote.call("engine.execute", json!({"command": "circle", "params": {}})).unwrap_err();
         assert!(err.contains("may or may not have been applied"), "{err}");
-        assert_eq!(server.join().unwrap(), 1);
+        assert_eq!(join_with_timeout(server, Duration::from_secs(6), "MCP fake server"), 1);
         assert!(remote.token.is_none());
         assert!(remote.conn.is_none());
     }
@@ -464,7 +491,7 @@ mod tests {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let addr = listener.local_addr().unwrap().to_string();
             let server = std::thread::spawn(move || {
-                let (conn, _) = listener.accept().unwrap();
+                let conn = accept_with_timeout(&listener, Duration::from_secs(5));
                 let mut line = String::new();
                 BufReader::new(conn.try_clone().unwrap()).read_line(&mut line).unwrap();
                 let mut out = conn;
@@ -473,7 +500,7 @@ mod tests {
             let mut remote = Remote::connect(&addr).unwrap();
             let err = remote.call("engine.execute", json!({"command": "circle", "params": {}})).unwrap_err();
             assert!(err.starts_with("timeout") && err.contains(want), "{err}");
-            server.join().unwrap();
+            join_with_timeout(server, Duration::from_secs(6), "MCP fake server");
         }
     }
     /// Retrying a read after a lost reply reloads the replacement server session token.
@@ -483,7 +510,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let old = crate::control_token::issue(addr.port()).unwrap();
         let server = std::thread::spawn(move || {
-            let (conn, _) = listener.accept().unwrap();
+            let conn = accept_with_timeout(&listener, Duration::from_secs(5));
             let mut line = String::new();
             let mut reader = BufReader::new(conn);
             reader.read_line(&mut line).unwrap();
@@ -491,7 +518,7 @@ mod tests {
             assert!(first["token"].as_str() == Some(old.as_str()));
             let fresh = crate::control_token::issue(addr.port()).unwrap();
             drop(reader);
-            let (mut conn, _) = listener.accept().unwrap();
+            let mut conn = accept_with_timeout(&listener, Duration::from_secs(5));
             line.clear();
             BufReader::new(conn.try_clone().unwrap()).read_line(&mut line).unwrap();
             let retry: Value = serde_json::from_str(&line).unwrap();
@@ -501,7 +528,7 @@ mod tests {
         });
         let mut remote = Remote::connect(&addr.to_string()).unwrap();
         assert_eq!(remote.call("ping", json!({})).unwrap(), json!("pong"));
-        server.join().unwrap();
+        join_with_timeout(server, Duration::from_secs(6), "MCP fake server");
     }
     /// Answer one request per connection like the app's control server: `reply` sees the request
     /// and the connection number and says what to send back; the server closes after each reply.
@@ -554,7 +581,7 @@ mod tests {
         });
         let mut remote = Remote::lazy(&addr.to_string(), false);
         let first = remote.call("engine.execute", json!({"command": "circle", "params": {}}));
-        let requests = server.join().unwrap();
+        let requests = join_with_timeout(server, Duration::from_secs(6), "MCP fake server");
         crate::control_token::revoke(addr.port());
         assert_eq!(first, Ok(json!("drawing")));
         assert_eq!(requests, 2);
@@ -578,7 +605,7 @@ mod tests {
             let mut remote = Remote::lazy(&addr, false);
             let err = remote.call("engine.execute", json!({"command": "circle", "params": {}})).unwrap_err();
             assert!(err.starts_with("unauthorized"), "{err}");
-            assert_eq!(server.join().unwrap(), connections, "{state:?}");
+            assert_eq!(join_with_timeout(server, Duration::from_secs(6), "MCP fake server"), connections, "{state:?}");
             assert!(remote.token.is_none() && remote.conn.is_none());
         }
     }
@@ -590,7 +617,7 @@ mod tests {
         let mut remote = Remote::connect(&addr).unwrap();
         remote.conn.as_ref().unwrap().1.shutdown(std::net::Shutdown::Write).unwrap();
         let server = std::thread::spawn(move || {
-            let (conn, _) = listener.accept().unwrap();
+            let conn = accept_with_timeout(&listener, Duration::from_secs(5));
             let mut line = String::new();
             assert_eq!(BufReader::new(conn).read_line(&mut line).unwrap(), 0);
             listener.set_nonblocking(true).unwrap();
@@ -599,7 +626,7 @@ mod tests {
         });
         let error = remote.call("engine.execute", json!({"command": "circle", "params": {}})).unwrap_err();
         assert!(error.contains("may or may not have been applied"));
-        assert!(!server.join().unwrap(), "a failed mutation write was retried");
+        assert!(!join_with_timeout(server, Duration::from_secs(6), "MCP fake server"), "a failed mutation write was retried");
         assert!(remote.token.is_none());
     }
 }

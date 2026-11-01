@@ -96,14 +96,12 @@ impl Interactive for TanCircleM {
                     let o=tan_obj(s,h,p)?;
                     self.picks.push((h,o,p));
                     if !self.radius_mode && self.picks.len() == 3 {
-                        let (a,b,third)=match (self.picks.first(),self.picks.get(1),self.picks.get(2)) {
-                            (Some(a),Some(b),Some(third))=>(*a,*b,*third),
-                            _=>return Ok(Step::Cancel),
-                        };
-                        let Some(solved)=curves::ttt([(a.1,a.2),(b.1,b.2),(third.1,third.2)]) else {
+                        let (Some(a),Some(b),Some(third))=(self.picks.first(),self.picks.get(1),self.picks.get(2)) else { return Ok(Step::Cancel); };
+                        let (a,b,third)=(*a,*b,*third);
+                        let solved=curves::ttt([(a.1,a.2),(b.1,b.2),(third.1,third.2)]).ok_or_else(||{
                             self.picks.clear();
-                            return Err(other("Circle does not exist."));
-                        };
+                            other("Circle does not exist.")
+                        })?;
                         let nh=s.add_entity(circle(solved.center,solved.radius))?;
                         crate::cmd::modify::inherit_tbt360_bim_scope_from_sources(s.doc_mut()?,nh,&[a.0,b.0,third.0]);
                         return Ok(Step::Done);

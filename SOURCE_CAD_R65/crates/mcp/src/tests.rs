@@ -4,6 +4,25 @@ use serde_json::{Value, json};
 
 use crate::{Headless, Server};
 
+/// Accept one loopback connection with a hard deadline so a failed client cannot hang CI.
+fn accept_with_timeout(listener: &std::net::TcpListener, timeout: std::time::Duration) -> std::net::TcpStream {
+    listener.set_nonblocking(true).unwrap();
+    let start = std::time::Instant::now();
+    loop {
+        match listener.accept() {
+            Ok((stream, _)) => {
+            stream.set_nonblocking(false).unwrap();
+            stream.set_read_timeout(Some(timeout)).unwrap();
+            stream.set_write_timeout(Some(timeout)).unwrap();
+            return stream;
+        }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock && start.elapsed() < timeout => std::thread::sleep(std::time::Duration::from_millis(10)),
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => panic!("accept timed out after {timeout:?}"),
+            Err(e) => panic!("accept failed: {e}"),
+        }
+    }
+}
+
 /// Send one JSON-RPC request to the server and return the parsed reply; fails the test if the
 /// server does not answer or answers with invalid JSON.
 fn call(s: &mut Server, id: u64, method: &str, params: Value) -> Value {
@@ -249,7 +268,7 @@ fn a_lazy_bridge_starts_without_the_app_and_says_how_to_open_it() {
     let listener = std::net::TcpListener::bind(&addr).unwrap();
     let app = std::thread::spawn(move || {
         use std::io::{BufRead, Write};
-        let (sock, _) = listener.accept().unwrap();
+        let sock = accept_with_timeout(&listener, std::time::Duration::from_secs(5));
         let mut line = String::new();
         std::io::BufReader::new(sock.try_clone().unwrap()).read_line(&mut line).unwrap();
         let id = serde_json::from_str::<Value>(&line).unwrap()["id"].clone();
@@ -257,5 +276,10 @@ fn a_lazy_bridge_starts_without_the_app_and_says_how_to_open_it() {
     });
     let r = call(&mut s, 4, "tools/call", json!({"name": "command_line", "arguments": {"text": ""}}));
     assert_ne!(r["result"]["isError"], json!(true), "{r}");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(6);
+    while !app.is_finished() {
+        if std::time::Instant::now() >= deadline { panic!("lazy bridge fake app did not finish within 6s"); }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     app.join().unwrap();
 }

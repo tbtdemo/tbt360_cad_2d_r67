@@ -7,11 +7,11 @@
 //! stays I/O-agnostic; the JSON forms never open dialogs (the UI asks for files when these
 //! commands come from a menu, the tool bar or the command line).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use cadcraft_color::Rgb;
-use cadcraft_doc::{Drawing, Entity, EntityKind, PageSetup, Space};
+use cadcraft_doc::{Drawing, Entity, EntityKind, Handle, PageSetup, Space};
 use cadcraft_geom::{Bounds2, Mat3, Vec2};
 use cadcraft_render::paper::{self, Sheet};
 use cadcraft_render::raster::{RasterOptions, View};
@@ -234,20 +234,21 @@ fn import_drawing(s: &mut Session, src: &Drawing, at: Vec2, scale: f64, file: &s
     let d = s.doc_mut()?;
     let (layers, styles) = merge_tables(d, src);
     let renames = block_names(d, src);
+    let handle_map = allocate_source_handles(d, src, &renames);
     for (from, to) in &renames {
         let Some(b) = src.blocks.get(from) else { continue };
         let mut nb = (**b).clone();
         nb.name = to.clone();
         nb.entities = Default::default();
         for e in b.entities.iter() {
-            let e = adopt(d, e, &renames);
+            let e = adopt(d, e, &renames, &handle_map);
             nb.entities.push(e);
         }
         d.blocks.insert(to.clone(), Arc::new(nb));
     }
     let mut handles = Vec::new();
     for e in src.model.iter() {
-        let mut e = adopt(d, e, &renames);
+        let mut e = adopt(d, e, &renames, &handle_map);
         if moved {
             e.kind.transform(&m);
         }
@@ -330,9 +331,28 @@ fn block_names(d: &Drawing, src: &Drawing) -> BTreeMap<String, String> {
 
 /// A copy of a source entity for this drawing: a fresh handle, block references renamed, and
 /// links to other source objects (associative dimension points) dropped.
-fn adopt(d: &mut Drawing, e: &Entity, renames: &BTreeMap<String, String>) -> Entity {
+fn allocate_source_handles(d: &mut Drawing, src: &Drawing, renames: &BTreeMap<String, String>) -> HashMap<Handle, Handle> {
+    let mut map = HashMap::new();
+    for from in renames.keys() {
+        if let Some(b) = src.blocks.get(from) {
+            for e in b.entities.iter() { map.entry(e.handle).or_insert_with(|| d.new_handle()); }
+        }
+    }
+    for e in src.model.iter() { map.entry(e.handle).or_insert_with(|| d.new_handle()); }
+    map
+}
+
+fn remap_xdata_handles(e: &mut Entity, handle_map: &HashMap<Handle, Handle>) {
+    for tag in &mut e.common.xdata {
+        if tag.code == 1005 { tag.value = Handle::parse_hex(&tag.value).and_then(|h| handle_map.get(&h).copied()).map(|h| h.hex()).unwrap_or_else(|| "0".into()); }
+    }
+}
+
+fn adopt(_d: &mut Drawing, e: &Entity, renames: &BTreeMap<String, String>, handle_map: &HashMap<Handle, Handle>) -> Entity {
     let mut e = e.clone();
-    e.handle = d.new_handle();
+    e.handle = *handle_map.get(&e.handle).expect("allocated IMPORT source handle");
+    remap_xdata_handles(&mut e, handle_map);
+    crate::cmd::modify::refresh_tbt360_bim_copy_identity(&mut e.common, e.handle);
     match &mut e.kind {
         EntityKind::Insert(i) => {
             if let Some(n) = renames.get(&i.block) {
@@ -626,7 +646,7 @@ fn run_pdfbook(s: &mut Session, p: &Value) -> Result<Value> {
 
 #[cfg(test)]
 mod tests {
-    use cadcraft_doc::{Block, Circle, Common, Handle, Insert, Layer, Line};
+    use cadcraft_doc::{Block, Circle, Common, Handle, Insert, Layer, Line, RawTag};
     use cadcraft_geom::Vec3;
 
     use super::super::file::{IoHooks, set_io};
@@ -789,6 +809,46 @@ mod tests {
         our_hooks();
         for p in [json!({}), json!({ "data": "%%" }), json!({ "data": "", "scale": 0 }), json!({ "data": "", "at": "x" })] {
             assert!(s.execute("import", &p).is_err(), "{p}");
+        }
+    }
+
+    #[test]
+    fn import_remaps_internal_xdata_and_redo_preserves_destination_identity() {
+        set_io(IoHooks {
+            read: |_, _| {
+                let mut src = Drawing::new_imperial();
+                let mut a = Entity::new(Handle(0xA0), line((0.0, 0.0), (10.0, 0.0)));
+                a.common.xdata.push(RawTag { code: 1005, value: "A1".into() });
+                let mut b = Entity::new(Handle(0xA1), line((0.0, 5.0), (10.0, 5.0)));
+                b.common.xdata.push(RawTag { code: 1005, value: "A0".into() });
+                src.model.push(a);
+                src.model.push(b);
+                Ok(src)
+            },
+            write: |_, _| Err("not used".into()),
+            plot: None,
+        });
+        let mut s = session();
+        let before: Vec<Handle> = s.doc().unwrap().model.handles();
+        let r = s.execute("import", &json!({ "data": "", "name": "links.dxf" })).unwrap();
+        let imported: Vec<Handle> = r["handles"].as_array().unwrap().iter().map(|v| Handle::parse_hex(v.as_str().unwrap()).unwrap()).collect();
+        assert_eq!(imported.len(), 2);
+        assert!(!imported.contains(&Handle(0xA0)) && !imported.contains(&Handle(0xA1)));
+        for h in &imported {
+            let e = s.doc().unwrap().entity(*h).unwrap();
+            let peer = e.common.xdata.iter().find(|t| t.code == 1005).and_then(|t| Handle::parse_hex(&t.value)).expect("remapped IMPORT 1005");
+            assert!(imported.contains(&peer) && peer != *h);
+        }
+
+        s.execute("undo", &json!({})).unwrap();
+        assert!(imported.iter().all(|h| s.doc().unwrap().entity(*h).is_none()));
+        s.execute("redo", &json!({})).unwrap();
+        let redone: Vec<Handle> = s.doc().unwrap().model.handles().into_iter().filter(|h| !before.contains(h)).collect();
+        assert_eq!(redone, imported, "redo must restore imported identities without reallocating handles");
+        for h in &redone {
+            let e = s.doc().unwrap().entity(*h).unwrap();
+            let peer = e.common.xdata.iter().find(|t| t.code == 1005).and_then(|t| Handle::parse_hex(&t.value)).expect("redo IMPORT 1005");
+            assert!(redone.contains(&peer) && peer != *h);
         }
     }
 

@@ -2,7 +2,8 @@
 //! use, PASTEORIG pastes into another drawing at the same coordinates, and the clipboard can
 //! travel as text through the system clipboard.
 
-use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
+use std::sync::Arc;
 
 use cadcraft_engine::Session;
 use cadcraft_engine::cmd::clipboard;
@@ -283,22 +284,31 @@ fn cutbase_asks_for_the_base_point_then_the_objects() {
 }
 
 /// A stand-in for the DXF writer and reader: "writes" the drawing to memory.
-static WRITTEN: Mutex<Option<Drawing>> = Mutex::new(None);
+thread_local! {
+    static WRITTEN: RefCell<Option<Drawing>> = const { RefCell::new(None) };
+}
 
-#[test]
-fn system_clipboard_real_dxf_preserves_bim_scope_and_repairs_identity_on_paste() {
+fn install_real_clipboard_io() {
     set_io(IoHooks {
         read: |bytes,name| cadcraft_io::read(bytes,name).map_err(|e|e.to_string()),
-        write: |d,name| cadcraft_io::write(d,name).map_err(|e|e.to_string()),
+        write: |d,name| {
+            WRITTEN.with(|slot| *slot.borrow_mut() = Some(d.clone()));
+            cadcraft_io::write(d,name).map_err(|e|e.to_string())
+        },
         plot: None,
     });
+}
+
+#[test]
+fn system_clipboard_real_dxf_preserves_cad_geometry_layer_xdata_and_allocates_new_handle() {
+    install_real_clipboard_io();
 
     let mut source=Drawing::new_metric();
-    let mut e=line(&mut source,"0",(0.0,0.0),(10.0,0.0));
+    let mut e=line(&mut source,"A-WALL",(0.0,0.0),(10.0,0.0));
     let old=e.handle;
     e.common.xdata=vec![
-        RawTag{code:1001,value:"TBT360_BIM".into()},
-        RawTag{code:1000,value:format!("floor=2;discipline=ELEC;owner=u1;revision=7;entity={}",old.hex())},
+        RawTag{code:1001,value:"TBT360_CAD".into()},
+        RawTag{code:1000,value:"work_code=BTCT;note=wall-axis".into()},
     ];
     source.model.push(e);
 
@@ -306,43 +316,67 @@ fn system_clipboard_real_dxf_preserves_bim_scope_and_repairs_identity_on_paste()
     a.open_drawing(source,"A",None);
     a.execute("copybase",&json!({"handles":[old.hex()],"base":[0,0]})).unwrap();
     let text=clipboard::system_text(&a).expect("real DXF clipboard text");
-    assert!(text.contains("TBT360_BIM"));
+    assert!(text.contains("TBT360_CAD"));
 
     let mut b=Session::empty();
     b.open_drawing(Drawing::new_metric(),"B",None);
     assert!(clipboard::load_system_text(&mut b,&text));
     b.execute("pasteclip",&json!({"at":[0,0]})).unwrap();
 
-    let pasted=b.doc().unwrap().model.first().unwrap();
+    let pasted=b.doc().unwrap().model.iter().next().unwrap();
     assert_ne!(pasted.handle,old);
-    let at=pasted.common.xdata.iter().position(|t|t.code==1001&&t.value=="TBT360_BIM").unwrap();
-    let payload=&pasted.common.xdata[at+1].value;
-    assert!(payload.contains("floor=2;discipline=ELEC;owner=u1;revision=7"));
-    assert!(payload.contains(&format!("entity={}",pasted.handle.hex())));
+    assert_eq!(pasted.common.layer,"A-WALL");
+    let EntityKind::Line(line)=&pasted.kind else { panic!("expected LINE") };
+    assert!((line.b.x-line.a.x-10.0).abs()<1e-12 && (line.b.y-line.a.y).abs()<1e-12);
+    let at=pasted.common.xdata.iter().position(|t|t.code==1001&&t.value=="TBT360_CAD").unwrap();
+    assert_eq!(pasted.common.xdata[at+1].value,"work_code=BTCT;note=wall-axis");
+}
+
+#[test]
+fn clipboard_remaps_internal_xdata_1005_links_to_new_handles() {
+    install_real_clipboard_io();
+
+    let mut source=Drawing::new_metric();
+    let mut a=line(&mut source,"A-LINK",(0.0,0.0),(5.0,0.0));
+    let mut b=line(&mut source,"A-LINK",(0.0,1.0),(5.0,1.0));
+    let old_a=a.handle;
+    let old_b=b.handle;
+    a.common.xdata=vec![RawTag{code:1001,value:"TBT360_LINK".into()},RawTag{code:1005,value:old_b.hex()}];
+    b.common.xdata=vec![RawTag{code:1001,value:"TBT360_LINK".into()},RawTag{code:1005,value:old_a.hex()}];
+    source.model.push(a);
+    source.model.push(b);
+
+    let mut src=Session::empty();
+    src.open_drawing(source,"A",None);
+    src.execute("copybase",&json!({"handles":[old_a.hex(),old_b.hex()],"base":[0,0]})).unwrap();
+    let text=clipboard::system_text(&src).expect("DXF clipboard text");
+
+    let mut dst=Session::empty();
+    dst.open_drawing(Drawing::new_metric(),"B",None);
+    assert!(clipboard::load_system_text(&mut dst,&text));
+    dst.execute("pasteclip",&json!({"at":[0,0]})).unwrap();
+
+    let pasted=dst.doc().unwrap().model.iter().map(|e|(**e).clone()).collect::<Vec<_>>();
+    assert_eq!(pasted.len(),2);
+    let new_handles=pasted.iter().map(|e|e.handle).collect::<Vec<_>>();
+    assert!(!new_handles.contains(&old_a) && !new_handles.contains(&old_b));
+    for e in &pasted {
+        let target=e.common.xdata.iter().find(|t|t.code==1005).and_then(|t|Handle::parse_hex(&t.value)).expect("remapped 1005");
+        assert_ne!(target,old_a);
+        assert_ne!(target,old_b);
+        assert_ne!(target,e.handle);
+        assert!(new_handles.contains(&target),"1005 must target the pasted peer");
+    }
 }
 
 #[test]
 fn clipboard_travels_as_text() {
-    set_io(IoHooks {
-        read: |bytes, _| {
-            if bytes.starts_with(b"0\nSECTION") {
-                WRITTEN.lock().unwrap().clone().ok_or_else(|| "nothing written".into())
-            } else {
-                Err("not DXF".into())
-            }
-        },
-        write: |d, name| {
-            assert!(name.ends_with(".dxf"));
-            *WRITTEN.lock().unwrap() = Some(d.clone());
-            Ok(b"0\nSECTION\n2\nHEADER\n0\nENDSEC\n0\nEOF\n".to_vec())
-        },
-        plot: None,
-    });
+    install_real_clipboard_io();
     let mut s = Session::empty();
     let a = s.open_drawing(drawing_a(), "A", None);
     s.execute("copybase", &json!({ "handles": handles(&s), "base": [10, 0] })).unwrap();
     let text = clipboard::system_text(&s).expect("DXF text");
-    let written = WRITTEN.lock().unwrap().clone().unwrap();
+    let written = WRITTEN.with(|slot| slot.borrow().clone()).unwrap();
     assert_eq!(written.model.len(), 2);
     assert!(written.block("DOOR").is_some() && written.layer("HINGE").is_some());
     assert_eq!(written.header.point("INSBASE"), Some(Vec3::new(10.0, 0.0, 0.0)));
@@ -359,4 +393,79 @@ fn clipboard_travels_as_text() {
     assert_eq!(t.doc().unwrap().model.len(), 2);
     assert!(t.doc().unwrap().block("DOOR").is_some() && t.doc().unwrap().layer("HINGE").is_some());
     let _ = a;
+}
+
+#[test]
+fn pasted_nested_blocks_remap_cross_block_xdata_1005_links() {
+    let mut source=Drawing::new_metric();
+    let mut a=line(&mut source,"0",(0.0,0.0),(1.0,0.0));
+    let mut b=line(&mut source,"0",(0.0,1.0),(1.0,1.0));
+    let old_a=a.handle;
+    let old_b=b.handle;
+    a.common.xdata=vec![RawTag{code:1001,value:"TBT360_LINK".into()},RawTag{code:1005,value:old_b.hex()}];
+    b.common.xdata=vec![RawTag{code:1001,value:"TBT360_LINK".into()},RawTag{code:1005,value:old_a.hex()}];
+    block(&mut source,"A_LINK",vec![a]);
+    block(&mut source,"B_LINK",vec![b]);
+    let ia=insert(&mut source,"A_LINK",(0.0,0.0));
+    let ib=insert(&mut source,"B_LINK",(10.0,0.0));
+    let iah=ia.handle;
+    let ibh=ib.handle;
+    source.model.push(ia);
+    source.model.push(ib);
+
+    let mut s=Session::empty();
+    let src=s.open_drawing(source,"source",None);
+    let dst=s.open_drawing(Drawing::new_metric(),"target",None);
+    s.active=src;
+    s.execute("copybase",&json!({"handles":[iah.hex(),ibh.hex()],"base":[0,0]})).unwrap();
+    s.active=dst;
+    s.execute("pasteclip",&json!({"at":[0,0]})).unwrap();
+
+    let d=s.doc().unwrap();
+    let ea=d.block("A_LINK").unwrap().entities.iter().next().unwrap();
+    let eb=d.block("B_LINK").unwrap().entities.iter().next().unwrap();
+    assert_ne!(ea.handle,old_a);
+    assert_ne!(eb.handle,old_b);
+    let ta=ea.common.xdata.iter().find(|t|t.code==1005).and_then(|t|Handle::parse_hex(&t.value)).expect("A remapped cross-block 1005");
+    let tb=eb.common.xdata.iter().find(|t|t.code==1005).and_then(|t|Handle::parse_hex(&t.value)).expect("B remapped cross-block 1005");
+    assert_eq!(ta,eb.handle);
+    assert_eq!(tb,ea.handle);
+}
+
+#[test]
+fn paste_undo_redo_restores_exact_new_handles_and_xdata_links() {
+    let mut source=Drawing::new_metric();
+    let mut a=line(&mut source,"A-LINK",(0.0,0.0),(5.0,0.0));
+    let mut b=line(&mut source,"A-LINK",(0.0,1.0),(5.0,1.0));
+    let old_a=a.handle;
+    let old_b=b.handle;
+    a.common.xdata=vec![RawTag{code:1001,value:"TBT360_LINK".into()},RawTag{code:1005,value:old_b.hex()}];
+    b.common.xdata=vec![RawTag{code:1001,value:"TBT360_LINK".into()},RawTag{code:1005,value:old_a.hex()}];
+    source.model.push(a);
+    source.model.push(b);
+
+    let mut s=Session::empty();
+    let src=s.open_drawing(source,"source",None);
+    let dst=s.open_drawing(Drawing::new_metric(),"target",None);
+    s.active=src;
+    s.execute("copybase",&json!({"handles":[old_a.hex(),old_b.hex()],"base":[0,0]})).unwrap();
+    s.active=dst;
+    s.execute("pasteclip",&json!({"at":[20,0]})).unwrap();
+
+    let before_undo=s.doc().unwrap().model.iter().map(|e|((**e).clone())).collect::<Vec<_>>();
+    assert_eq!(before_undo.len(),2);
+    let new_handles=before_undo.iter().map(|e|e.handle).collect::<Vec<_>>();
+    assert!(!new_handles.contains(&old_a) && !new_handles.contains(&old_b));
+    s.execute("u",&json!({})).unwrap();
+    assert!(s.doc().unwrap().model.is_empty());
+    s.execute("redo",&json!({})).unwrap();
+
+    let redone=s.doc().unwrap().model.iter().map(|e|((**e).clone())).collect::<Vec<_>>();
+    assert_eq!(redone.len(),2);
+    assert_eq!(redone.iter().map(|e|e.handle).collect::<Vec<_>>(),new_handles,"redo must restore the exact pasted identities, not allocate again");
+    for e in &redone {
+        let target=e.common.xdata.iter().find(|t|t.code==1005).and_then(|t|Handle::parse_hex(&t.value)).expect("redo 1005");
+        assert!(new_handles.contains(&target));
+        assert_ne!(target,e.handle);
+    }
 }

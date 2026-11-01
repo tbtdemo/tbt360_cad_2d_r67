@@ -14,6 +14,58 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::time::Duration;
 
+const CAP_READ: u8 = 1 << 0;
+const CAP_EDIT: u8 = 1 << 1;
+const CAP_FILE_READ: u8 = 1 << 2;
+const CAP_FILE_WRITE: u8 = 1 << 3;
+const CAP_AUTOMATION: u8 = 1 << 4;
+const CAP_ALL: u8 = CAP_READ | CAP_EDIT | CAP_FILE_READ | CAP_FILE_WRITE | CAP_AUTOMATION;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Capabilities(u8);
+
+impl Capabilities {
+    fn from_env() -> Self {
+        let Ok(raw) = std::env::var("CADCRAFT_CONTROL_CAPABILITIES") else { return Self(CAP_ALL) };
+        let mut bits = 0u8;
+        for item in raw.split(|c: char| matches!(c, ',' | ';' | ' ')).map(str::trim).filter(|s| !s.is_empty()) {
+            match item.to_ascii_lowercase().as_str() {
+                "all" => return Self(CAP_ALL),
+                "read" => bits |= CAP_READ,
+                "edit" => bits |= CAP_EDIT,
+                "file_read" | "fileread" | "file-read" => bits |= CAP_FILE_READ,
+                "file_write" | "filewrite" | "file-write" => bits |= CAP_FILE_WRITE,
+                "automation" => bits |= CAP_AUTOMATION,
+                other => log::warn!("ignoring unknown control capability `{other}`"),
+            }
+        }
+        Self(bits)
+    }
+    fn allows(self, required: u8) -> bool { self.0 & required == required }
+    fn labels(self) -> String {
+        let mut v = Vec::new();
+        if self.0 & CAP_READ != 0 { v.push("read"); }
+        if self.0 & CAP_EDIT != 0 { v.push("edit"); }
+        if self.0 & CAP_FILE_READ != 0 { v.push("file_read"); }
+        if self.0 & CAP_FILE_WRITE != 0 { v.push("file_write"); }
+        if self.0 & CAP_AUTOMATION != 0 { v.push("automation"); }
+        v.join(",")
+    }
+}
+
+fn required_capabilities(method: &str) -> u8 {
+    match method {
+        "drawing.inspect" | "document.inspect" | "engine.commands" | "cmdline.state" | "control.methods" | "ping" | "ui.inspect" | "ui.elements" | "ui.menu.list" | "ui.render" | "ui.screenshot" => CAP_READ,
+        "app.open" => CAP_FILE_READ | CAP_AUTOMATION,
+        "app.save" => CAP_FILE_WRITE,
+        "ui.set" | "ui.resize" | "ui.focus" | "app.quit" => CAP_AUTOMATION,
+        "engine.execute" | "command" | "cmdline.input" | "cmdline.script" | "cmdline.key" | "ui.menu.invoke" | "ui.pointer" | "ui.click" | "ui.move" | "ui.drag" | "ui.key" | "ui.text" => CAP_EDIT | CAP_AUTOMATION,
+        _ => CAP_AUTOMATION,
+    }
+}
+
+fn capability_names(bits: u8) -> String { Capabilities(bits).labels() }
+
 use cadcraft_ui_egui::ControlRequest;
 use serde_json::{Value, json};
 
@@ -64,10 +116,11 @@ pub fn start(port: u16, ctx: egui::Context) -> Receiver<ControlRequest> {
                     return sync_channel::<ControlRequest>(0).1;
                 }
             };
+            let capabilities = Capabilities::from_env();
             if let Ok(path) = cadcraft_mcp::control_token::token_path(port) {
-                log::info!("control server listening on 127.0.0.1:{port} (token in {})", path.display());
+                log::info!("control server listening on 127.0.0.1:{port} (token in {}, capabilities: {})", path.display(), capabilities.labels());
             }
-            serve_listener(l, Limits::default(), ctx, token)
+            serve_listener(l, Limits::default(), ctx, token, capabilities)
         }
         Err(e) => {
             log::error!("control server failed to bind 127.0.0.1:{port}: {e}");
@@ -87,9 +140,9 @@ fn accepted<T>(incoming: impl Iterator<Item = std::io::Result<T>>, mut wait: imp
 }
 
 /// Accept connections on `listener` under `limits`; requests arrive on the returned receiver.
-fn serve_listener(listener: TcpListener, limits: Limits, ctx: egui::Context, token: Arc<String>) -> Receiver<ControlRequest> {
+fn serve_listener(listener: TcpListener, limits: Limits, ctx: egui::Context, token: Arc<String>, capabilities: Capabilities) -> Receiver<ControlRequest> {
     let (tx, rx) = sync_channel::<ControlRequest>(limits.queue.max(1));
-    std::thread::spawn(move || accept_loop(listener, tx, ctx, limits, token));
+    std::thread::spawn(move || accept_loop(listener, tx, ctx, limits, token, capabilities));
     rx
 }
 
@@ -104,7 +157,7 @@ impl Drop for Slot {
 }
 
 /// Accept clients within the connection limit and give each worker the same session token.
-fn accept_loop(listener: TcpListener, tx: SyncSender<ControlRequest>, ctx: egui::Context, limits: Limits, token: Arc<String>) {
+fn accept_loop(listener: TcpListener, tx: SyncSender<ControlRequest>, ctx: egui::Context, limits: Limits, token: Arc<String>, capabilities: Capabilities) {
     let open = Arc::new(AtomicUsize::new(0));
     for mut stream in accepted(listener.incoming(), || std::thread::sleep(ACCEPT_RETRY)) {
         let _ = stream.set_write_timeout(Some(limits.write_timeout));
@@ -119,7 +172,7 @@ fn accept_loop(listener: TcpListener, tx: SyncSender<ControlRequest>, ctx: egui:
         let token = Arc::clone(&token);
         let _ = std::thread::Builder::new().spawn(move || {
             let _slot = slot;
-            serve(stream, &tx, &ctx, limits, &token);
+            serve(stream, &tx, &ctx, limits, &token, capabilities);
         });
     }
 }
@@ -204,7 +257,7 @@ fn is_http_request_line(text: &str) -> bool {
 
 /// Serve bounded JSON lines, authenticating each request before enqueueing it for the UI.
 /// Invalid credentials close the connection; queue and reply limits report whether a request ran.
-fn serve(stream: TcpStream, tx: &SyncSender<ControlRequest>, ctx: &egui::Context, limits: Limits, token: &str) {
+fn serve(stream: TcpStream, tx: &SyncSender<ControlRequest>, ctx: &egui::Context, limits: Limits, token: &str, capabilities: Capabilities) {
     if stream.set_read_timeout(Some(limits.idle_timeout)).is_err() || stream.set_write_timeout(Some(limits.write_timeout)).is_err() {
         return;
     }
@@ -228,11 +281,17 @@ fn serve(stream: TcpStream, tx: &SyncSender<ControlRequest>, ctx: &egui::Context
                     // desktop user's commands (CWE-306).
                     if !given.map(|g| cadcraft_mcp::control_token::matches(token, &g)).unwrap_or(false) {
                         let mut r = json!({"ok": false, "error": "unauthorized: missing or invalid control token", "state": "not-run"});
-                        if let Some(o) = r.as_object_mut() {
-                            o.insert("id".into(), id);
-                        }
+                        if let Some(o) = r.as_object_mut() { o.insert("id".into(), id); }
                         let _ = writeln!(out, "{r}");
                         break;
+                    }
+                    let required = required_capabilities(&method);
+                    if !capabilities.allows(required) {
+                        let need = capability_names(required);
+                        let mut r = json!({"ok": false, "error": format!("forbidden: capability {need} required for `{method}`"), "state": "not-run", "requiredCapabilities": need});
+                        if let Some(o) = r.as_object_mut() { o.insert("id".into(), id); }
+                        let _ = writeln!(out, "{r}");
+                        continue;
                     }
                     let (req, pending) = ControlRequest::new(method, params);
                     let mut r = match tx.try_send(req) {
@@ -313,11 +372,24 @@ mod tests {
     /// A fixed token for tests; real tokens are random (see `cadcraft_mcp::control_token`).
     const TEST_TOKEN: &str = "test-control-token";
 
+    fn join_with_timeout<T>(handle: std::thread::JoinHandle<T>, timeout: Duration, what: &str) -> T {
+        let deadline = std::time::Instant::now() + timeout;
+        while !handle.is_finished() {
+            if std::time::Instant::now() >= deadline { panic!("{what} did not finish within {timeout:?}"); }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        handle.join().unwrap_or_else(|_| panic!("{what} panicked"))
+    }
+
     /// The control server on a loopback port under `limits`; requests arrive on the receiver.
-    fn serve_with(limits: Limits) -> (std::net::SocketAddr, Receiver<ControlRequest>) {
+    fn serve_with_caps(limits: Limits, capabilities: Capabilities) -> (std::net::SocketAddr, Receiver<ControlRequest>) {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let addr = listener.local_addr().unwrap();
-        (addr, serve_listener(listener, limits, egui::Context::default(), Arc::new(TEST_TOKEN.to_string())))
+        (addr, serve_listener(listener, limits, egui::Context::default(), Arc::new(TEST_TOKEN.to_string()), capabilities))
+    }
+
+    fn serve_with(limits: Limits) -> (std::net::SocketAddr, Receiver<ControlRequest>) {
+        serve_with_caps(limits, Capabilities(CAP_ALL))
     }
 
     /// The control server on a loopback port, with a stand-in UI that echoes each method.
@@ -348,6 +420,34 @@ mod tests {
             replies.push(serde_json::from_str(&line).unwrap());
         }
         replies
+    }
+
+
+    #[test]
+    fn capability_gate_rejects_mutations_before_dispatch() {
+        let (addr, rx) = serve_with_caps(short(), Capabilities(CAP_READ));
+        let replies = exchange(addr, req_line(7, "engine.execute").as_bytes());
+        assert_eq!(replies.len(), 1, "{replies:?}");
+        assert_eq!(replies[0]["ok"], false);
+        assert_eq!(replies[0]["state"], "not-run");
+        assert!(replies[0]["error"].as_str().unwrap().contains("forbidden: capability edit,automation required"), "{replies:?}");
+        assert!(rx.try_recv().is_err(), "forbidden request reached the UI dispatcher");
+    }
+
+    #[test]
+    fn capability_gate_separates_file_read_and_file_write() {
+        let (addr, rx) = serve_with_caps(short(), Capabilities(CAP_READ | CAP_FILE_READ | CAP_AUTOMATION));
+        let denied = exchange(addr, req_line(8, "app.save").as_bytes());
+        assert_eq!(denied[0]["state"], "not-run");
+        assert!(denied[0]["error"].as_str().unwrap().contains("file_write"), "{denied:?}");
+        assert!(rx.try_recv().is_err(), "file-write request reached the UI dispatcher");
+
+        let allowed = std::thread::spawn(move || exchange(addr, req_line(9, "app.open").as_bytes()));
+        let req = rx.recv_timeout(Duration::from_secs(2)).expect("allowed file-read request was not dispatched");
+        assert_eq!(req.method, "app.open");
+        let _ = req.reply.send(json!({"ok": true, "result": null}));
+        let replies = join_with_timeout(allowed, Duration::from_secs(3), "allowed file-read request");
+        assert_eq!(replies[0]["ok"], true, "{replies:?}");
     }
 
     /// A browser can POST to the port: its request line closes the connection before the JSON
@@ -410,7 +510,7 @@ mod tests {
             }
         };
         assert_eq!((busy["id"].as_i64(), busy["state"].as_str()), (Some(2), Some("not-run")), "{busy}");
-        assert_eq!(first.join().unwrap()[0]["state"], "not-run");
+        assert_eq!(join_with_timeout(first, Duration::from_secs(6), "busy-queue client")[0]["state"], "not-run");
         drop(rx);
     }
 

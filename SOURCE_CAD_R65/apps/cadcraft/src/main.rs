@@ -26,18 +26,6 @@ mod system_animations;
 mod workspace;
 mod takeoff;
 mod bim_collab;
-mod bim_sync;
-mod bim_domain;
-mod bim_presence;
-mod bim_federation;
-mod bim_api;
-mod bim_offline;
-mod bim_workset;
-mod bim_access;
-mod bim_coordinates;
-mod bim_viewport;
-mod bim_coordination;
-mod bim_clash;
 
 use cadcraft_engine::Session;
 use cadcraft_ui_egui::{CadApp, Services, i18n};
@@ -47,9 +35,13 @@ enum MainTab {
     #[default]
     Cad,
     Takeoff,
-    Pdf,
-    Model3d,
     BimCollab,
+}
+
+
+fn takeoff_pane_width(total_width: f32) -> f32 {
+    let target = (total_width * 0.36).clamp(340.0, 480.0);
+    target.min((total_width - 420.0).max(260.0))
 }
 
 struct App {
@@ -106,7 +98,6 @@ impl eframe::App for App {
     /// eframe logic callback: syncs the OS animation setting and runs `CadApp::logic`; when the pass index is 0 (the first pass or a hidden tick) it also installs/polls the macOS native menu, polls the spacemouse and persists the workspace; a quit request closes the viewport.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.cad.system_animations = self.system_animations.current();
-        bim_collab::sync_render_filters(&mut self.cad, &self.bim_collab_state);
         // Consume control/open/screenshot queues and time-based autosave, including hidden ticks.
         self.cad.logic(ctx);
         // Host frame work runs here, once per frame, and so also on a hidden logic-only tick (which
@@ -138,40 +129,112 @@ impl eframe::App for App {
         cadcraft_ui_egui::cmdline::capture_tab(ctx, raw);
     }
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // CAD 2D is the only workspace. A tool appears only if it acts on CAD entities.
+        // QTO reads the live CadApp selection/model; no empty PDF/IFC or standalone BIM tabs.
+        let mut cad_command: Option<&'static str> = None;
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.active_tab, MainTab::Cad, "CAD");
-            ui.selectable_value(&mut self.active_tab, MainTab::Takeoff, "ĐO BÓC");
-            ui.selectable_value(&mut self.active_tab, MainTab::Pdf, "PDF / BẢN VẼ");
-            ui.selectable_value(&mut self.active_tab, MainTab::Model3d, "3D / IFC");
-            ui.selectable_value(&mut self.active_tab, MainTab::BimCollab, "BIM CỘNG TÁC");
+            ui.label(egui::RichText::new("CAD 360 Việt Nam - TBT").strong());
+            ui.separator();
+            ui.menu_button("Vẽ", |ui| {
+                for (label, cmd) in [("Đường thẳng", "line"), ("Đa tuyến", "pline"), ("Đường tròn", "circle"), ("Cung tròn", "arc"), ("Hình chữ nhật", "rectang")] {
+                    if ui.button(label).clicked() { cad_command = Some(cmd); ui.close(); }
+                }
+            });
+            ui.menu_button("Hiệu chỉnh", |ui| {
+                for (label, cmd) in [("Di chuyển", "move"), ("Sao chép", "copy"), ("Xoay", "rotate"), ("Đối xứng", "mirror"), ("Dịch song song", "offset"), ("Cắt xén", "trim"), ("Kéo dài", "extend")] {
+                    if ui.button(label).clicked() { cad_command = Some(cmd); ui.close(); }
+                }
+            });
+            ui.menu_button("Chọn & đo", |ui| {
+                for (label, cmd) in [("Chọn tất cả", "selectall"), ("Bỏ chọn", "ai_deselect"), ("Đo khoảng cách", "dist"), ("Đo diện tích", "area"), ("Thu phóng toàn bộ", "zoom")] {
+                    if ui.button(label).clicked() { cad_command = Some(cmd); ui.close(); }
+                }
+            });
+            ui.menu_button("Đối tượng", |ui| {
+                for (label, cmd) in [("Bảng thuộc tính", "ui.panel.properties"), ("Quản lý lớp", "ui.dialog.layers"), ("Chọn nhanh", "ui.dialog.qselect"), ("Liệt kê thuộc tính", "list"), ("Xóa đối tượng", "erase")] {
+                    if ui.button(label).clicked() { cad_command = Some(cmd); ui.close(); }
+                }
+            });
+            ui.separator();
+            if ui.selectable_label(self.active_tab == MainTab::Takeoff, "ĐO BÓC").clicked() {
+                self.active_tab = if self.active_tab == MainTab::Takeoff { MainTab::Cad } else { MainTab::Takeoff };
+            }
+            if ui.selectable_label(self.active_tab == MainTab::BimCollab, "BIM CỘNG TÁC").clicked() {
+                self.active_tab = if self.active_tab == MainTab::BimCollab { MainTab::Cad } else { MainTab::BimCollab };
+            }
         });
-        ui.separator();
-        match self.active_tab {
-            MainTab::Cad => {
-                self.cad.ui(ui);
-                bim_collab::enforce_selection_scope(&mut self.cad, &self.bim_collab_state);
-            }
-            MainTab::Takeoff => {
-                ui.columns(2, |columns| {
-                    self.cad.ui(&mut columns[0]);
-                    bim_collab::enforce_selection_scope(&mut self.cad, &self.bim_collab_state);
-                    let qto_scope=takeoff::Scope {
-                        floor_id: Some(self.bim_collab_state.active_floor_id),
-                        discipline: Some(self.bim_collab_state.active_discipline.code().to_string()),
-                        owner_account_id: Some(self.bim_collab_state.current_account_id.clone()),
-                    };
-                    takeoff::panel(&mut columns[1], &self.cad, &mut self.takeoff_state, &qto_scope);
+        if let Some(cmd) = cad_command { self.cad.start(cmd); }
+        if self.active_tab == MainTab::Takeoff {
+            let available = ui.available_size();
+            let qto_width = takeoff_pane_width(available.x);
+            let canvas_width = (available.x - qto_width - 8.0).max(320.0);
+            ui.horizontal(|ui| {
+                ui.allocate_ui_with_layout(egui::vec2(canvas_width, available.y), egui::Layout::top_down(egui::Align::Min), |ui| self.cad.ui(ui));
+                ui.separator();
+                ui.allocate_ui_with_layout(egui::vec2(qto_width, available.y), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading("Đo bóc từ đối tượng CAD");
+                        if ui.small_button("Đóng").clicked() { self.active_tab = MainTab::Cad; }
+                    });
+                    ui.separator();
+                    let selected = self.cad.session.selection();
+                    ui.label(egui::RichText::new(format!("Đang chọn {} đối tượng trên bản vẽ", selected.len())).strong());
+                    if let Ok(drawing) = self.cad.session.doc() {
+                        for handle in selected.iter().take(8) {
+                            if let Some(entity) = drawing.model.get(*handle) {
+                                let kind = match &entity.kind {
+                                    cadcraft_doc::EntityKind::Line(_) => "Đường thẳng",
+                                    cadcraft_doc::EntityKind::Arc(_) => "Cung tròn",
+                                    cadcraft_doc::EntityKind::Circle(_) => "Đường tròn",
+                                    cadcraft_doc::EntityKind::LwPolyline(_) => "Đa tuyến",
+                                    cadcraft_doc::EntityKind::Polyline3d(_) => "Đa tuyến 3D",
+                                    cadcraft_doc::EntityKind::Insert(_) => "Khối",
+                                    cadcraft_doc::EntityKind::Hatch(_) => "Mặt cắt",
+                                    _ => "Đối tượng",
+                                };
+                                ui.label(format!("{} · {} · Lớp {}", handle.hex(), kind, entity.common.layer));
+                            }
+                        }
+                        if selected.len() > 8 { ui.small(format!("Và {} đối tượng khác", selected.len() - 8)); }
+                    }
+                    ui.separator();
+                    let qto_scope = takeoff::Scope::default();
+                    egui::ScrollArea::vertical().id_salt("r67_qto_scroll").show(ui, |ui| {
+                        takeoff::panel(ui, &self.cad, &mut self.takeoff_state, &qto_scope);
+                    });
                 });
-            }
-            MainTab::Pdf => {
-                ui.heading("PDF / BẢN VẼ");
-                ui.label("Khu vực tích hợp PDF nhiều trang, hiệu chỉnh theo trang, overlay và annotation. Chức năng đang được chuyển từ QTO R134 sang native.");
-            }
-            MainTab::Model3d => {
-                ui.heading("3D / IFC");
-                ui.label("Khu vực tích hợp IFC/Solid/Volume và đối chiếu khối lượng 2D/3D. Chưa được đánh dấu hoàn thành.");
-            }
-            MainTab::BimCollab => bim_collab::panel(ui, &mut self.cad, &mut self.bim_collab_state),
+            });
+        } else if self.active_tab == MainTab::BimCollab {
+            // Keep the real CAD360 shell (title/toolbar, Tool Sets, file tabs, command/status bars)
+            // visible. BIM collaboration is an in-context workspace over the drawing area, not a
+            // replacement application shell. This is intentionally different from QTO's split pane.
+            self.cad.ui(ui);
+            let ctx=ui.ctx().clone();
+            let available=ctx.content_rect();
+            let width=(available.width()*0.78).clamp(760.0,1320.0);
+            let height=(available.height()*0.78).clamp(520.0,820.0);
+            egui::Window::new("bim_coordination_workspace")
+                .title_bar(false)
+                .collapsible(false)
+                .resizable(true)
+                .default_size(egui::vec2(width,height))
+                .anchor(egui::Align2::CENTER_CENTER,egui::vec2(90.0,24.0))
+                .show(&ctx,|ui| {
+                    ui.horizontal(|ui| {
+                        ui.strong("BIM CỘNG TÁC");
+                        ui.separator();
+                        ui.label("Phối hợp thiết kế");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui| {
+                            if ui.small_button("Quay lại bản vẽ").clicked(){self.active_tab=MainTab::Cad;}
+                        });
+                    });
+                    ui.separator();
+                    egui::ScrollArea::vertical().id_salt("r67_bim_collaboration_scroll").show(ui,|ui| {
+                        bim_collab::panel(ui,&mut self.cad,&mut self.bim_collab_state);
+                    });
+                });
+        } else {
+            self.cad.ui(ui);
         }
         #[cfg(target_os = "macos")]
         craft_window::title_bar::sync_movable(ui.ctx(), &mut self.movable);
@@ -289,7 +352,7 @@ fn app_icon() -> Option<egui::IconData> {
 
 fn version_string() -> String {
     let sha = option_env!("CADCRAFT_BUILD_SHA").unwrap_or("dev");
-    format!("cadcraft {} ({sha})", env!("CARGO_PKG_VERSION"))
+    format!("CAD360 {} ({sha})", option_env!("CAD360_RELEASE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")))
 }
 
 /// The control port from `--control <port>` or `CADCRAFT_CONTROL_PORT` (`source`); a value that is
@@ -404,6 +467,9 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| {
             let mut app = CadApp::new(Session::empty(), services());
+            // CAD360 Việt Nam starts in Vietnamese on a clean profile. Restored workspace or
+            // saved preferences below still win, so users can explicitly choose another language.
+            app.ui.interface_language = cadcraft_ui_egui::i18n::Preference::Vietnamese;
             let (workspace, restored, workspace_error) = workspace::Workspace::load();
             if let Some(ui) = restored {
                 app.ui = ui;
@@ -484,12 +550,23 @@ fn main() -> eframe::Result {
 
 #[cfg(test)]
 mod tests {
-    use super::{config_dir_from, control_flag, control_port_from, filters_for_save, follow_desktop};
+    use super::{config_dir_from, control_flag, control_port_from, filters_for_save, follow_desktop, takeoff_pane_width};
     use std::ffi::OsString;
     use std::path::PathBuf;
 
     fn env<'a>(vars: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<OsString> + 'a {
         move |k| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| OsString::from(v))
+    }
+
+    #[test]
+    fn takeoff_workspace_keeps_a_usable_canvas_at_common_window_widths() {
+        for width in [600.0_f32, 800.0, 1200.0, 1920.0] {
+            let qto = takeoff_pane_width(width);
+            let canvas = width - qto - 8.0;
+            assert!((260.0..=480.0).contains(&qto), "QTO pane width {qto} at window {width}");
+            assert!(canvas >= 332.0, "CAD canvas is too narrow: {canvas} at window {width}");
+            assert!(qto < width * 0.5, "QTO must never consume half of the CAD workspace: {qto}/{width}");
+        }
     }
 
     #[test]

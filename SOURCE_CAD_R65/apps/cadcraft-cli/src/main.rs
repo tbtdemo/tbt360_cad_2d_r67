@@ -846,7 +846,7 @@ fn cli() -> ExitCode {
         }),
         Some("mcp") => mcp(&rest),
         Some("--version" | "-V") => {
-            outln!("cadcraft-cli {}", env!("CARGO_PKG_VERSION"));
+            outln!("cadcraft-cli {}", option_env!("CAD360_RELEASE_VERSION").unwrap_or(env!("CARGO_PKG_VERSION")));
             Ok(())
         }
         Some("--help" | "-h" | "help") => {

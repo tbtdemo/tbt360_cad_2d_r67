@@ -720,8 +720,13 @@ mod tests {
             assert!(req.begin());
             let _ = req.reply.send(json!({"ok": true, "result": 1}));
         });
-        assert_eq!(pending.wait(Duration::from_secs(30)), json!({"ok": true, "result": 1}));
-        let _ = app.join();
+        assert_eq!(pending.wait(Duration::from_secs(3)), json!({"ok": true, "result": 1}));
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while !app.is_finished() {
+            if std::time::Instant::now() >= deadline { panic!("control reply worker did not finish within 2s"); }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        app.join().expect("control reply worker");
     }
 
     #[test]

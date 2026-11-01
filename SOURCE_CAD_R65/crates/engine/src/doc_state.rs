@@ -21,6 +21,9 @@ pub struct DocState {
     pub path: Option<String>,
     pub title: String,
     pub saved: Arc<Drawing>,
+    /// Fingerprint of the drawing bytes last opened from or saved to `path`. Used by QSAVE to
+    /// refuse overwriting a file another process changed after we opened/saved it.
+    pub file_fingerprint: Option<u64>,
     pub revision: u64,
     pub space: Space,
     /// Tiled model viewports (VPORTS).
@@ -53,6 +56,7 @@ impl DocState {
             previous_selection: Vec::new(),
             path,
             title: title.into(),
+            file_fingerprint: None,
             revision: 1,
             space: Space::Model,
             tiles: ModelTiles::default(),

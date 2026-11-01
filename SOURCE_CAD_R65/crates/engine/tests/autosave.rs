@@ -30,6 +30,19 @@ fn draw(s: &mut Session) {
     s.execute("circle", &json!({"center": [0, 0], "radius": 1})).unwrap();
 }
 
+struct AutosaveGlobals { savetime: u32, savefilepath: String }
+
+impl AutosaveGlobals {
+    fn capture() -> Self { Self { savetime: autosave::savetime(), savefilepath: autosave::savefilepath() } }
+}
+
+impl Drop for AutosaveGlobals {
+    fn drop(&mut self) {
+        autosave::set_savetime(self.savetime);
+        autosave::set_savefilepath(&self.savefilepath);
+    }
+}
+
 #[test]
 fn a_changed_drawing_is_written_savetime_minutes_after_the_change() {
     let mut s = Session::new();
@@ -169,6 +182,7 @@ fn recovery_offers_files_of_apps_that_stopped() {
 
 #[test]
 fn autosave_files_are_written_in_the_background_and_removed_on_exit() {
+    let _globals = AutosaveGlobals::capture();
     hooks();
     let dir = temp_dir("write");
     let mut s = Session::new();

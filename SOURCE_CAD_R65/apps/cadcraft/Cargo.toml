@@ -1,6 +1,6 @@
 [package]
 name = "cadcraft"
-description = "CAD 2D - TBT 360 desktop app"
+description = "CAD 360 Việt Nam - TBT desktop CAD 2D and quantity takeoff application"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -295,6 +295,10 @@ pub fn quick_properties(app: &mut CadApp, ctx: &egui::Context) {
     let linetype = same(&|e| e.common.linetype.clone());
     let layers: Vec<String> = d.layers.iter().map(|l| l.name.clone()).collect();
     let linetypes: Vec<String> = d.linetypes.iter().map(|l| l.name.clone()).collect();
+    let mut locked_layers: Vec<String> = ents.iter().filter_map(|e| d.layer(&e.common.layer).filter(|l| l.locked).map(|_| e.common.layer.clone())).collect();
+    locked_layers.sort();
+    locked_layers.dedup();
+    let selection_locked = !locked_layers.is_empty();
     let kind = if ents.len() == 1 { Some(first.kind.clone()) } else { None };
     let ids: Vec<String> = sel.iter().map(|h| h.hex()).collect();
     let mut set: Option<(String, Value)> = None;
@@ -309,6 +313,11 @@ pub fn quick_properties(app: &mut CadApp, ctx: &egui::Context) {
         .title_bar(true)
         .default_width(250.0)
         .show(ctx, |ui| {
+            if selection_locked {
+                ui.label(RichText::new(format!("{}: {}", crate::tl!("Read-only — locked layer"), locked_layers.join(", "))).color(Tokens::get().warn));
+                ui.add_space(4.0);
+            }
+            ui.add_enabled_ui(!selection_locked, |ui| {
             egui::Grid::new("qp_grid").num_columns(2).spacing(vec2(10.0, 4.0)).min_col_width(80.0).show(ui, |ui| {
                 ui.label(RichText::new(crate::tl!("Color")).color(Tokens::get().text_dim));
                 let cur = color.unwrap_or(cadcraft_color::Color::ByLayer);
@@ -402,6 +411,7 @@ pub fn quick_properties(app: &mut CadApp, ctx: &egui::Context) {
                     }
                     _ => {}
                 }
+            });
             });
             ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

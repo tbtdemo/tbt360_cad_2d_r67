@@ -29,3 +29,7 @@ acadrust = "0.6.5"
 tiny-skia = { workspace = true }
 # Reads plotted PDFs back.
 craft-pdf = { workspace = true, features = ["read"] }
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
+

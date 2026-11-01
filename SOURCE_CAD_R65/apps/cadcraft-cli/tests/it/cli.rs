@@ -1,7 +1,25 @@
 //! `cadcraft-cli` against a stdout nobody reads any more (#537).
 
 use std::io::Read;
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
+use std::time::{Duration, Instant};
+
+const PROCESS_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn wait_with_timeout(mut child: Child, timeout: Duration) -> Output {
+    let start = Instant::now();
+    loop {
+        match child.try_wait().expect("poll cadcraft-cli") {
+            Some(_) => return child.wait_with_output().expect("collect cadcraft-cli output"),
+            None if start.elapsed() < timeout => std::thread::sleep(Duration::from_millis(20)),
+            None => {
+                let _ = child.kill();
+                let out = child.wait_with_output().expect("collect timed-out cadcraft-cli output");
+                panic!("cadcraft-cli exceeded {timeout:?}: stderr={}", String::from_utf8_lossy(&out.stderr));
+            }
+        }
+    }
+}
 
 /// `cadcraft-cli commands | head` panicked with "failed printing to stdout: Broken pipe (os error
 /// 32)" and exit status 101: `commands` prints a few thousand lines, which no pipe buffer holds,
@@ -13,7 +31,7 @@ fn closed_stdout_ends_quietly() {
         let mut first = [0u8; 10];
         child.stdout.as_mut().unwrap().read_exact(&mut first).unwrap();
         drop(child.stdout.take());
-        let out = child.wait_with_output().unwrap();
+        let out = wait_with_timeout(child, PROCESS_TIMEOUT);
         let err = String::from_utf8_lossy(&out.stderr);
         assert!(out.status.success() && err.is_empty(), "{args:?}: {:?}: {err}", out.status);
     }
@@ -24,7 +42,7 @@ fn closed_stdout_ends_quietly() {
 fn run_with_closed_stdout(args: &[&str]) -> Output {
     let mut child = Command::new(env!("CARGO_BIN_EXE_cadcraft-cli")).args(args).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     drop(child.stdout.take());
-    child.wait_with_output().unwrap()
+    wait_with_timeout(child, PROCESS_TIMEOUT)
 }
 
 #[test]

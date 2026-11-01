@@ -6,7 +6,7 @@
 //! (names this drawing already has keep this drawing's definitions). The file is read through the
 //! host's io hooks like OPEN, so the engine stays I/O-agnostic.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use cadcraft_doc::{Block, Drawing, Entity, EntityKind, Handle};
@@ -103,13 +103,14 @@ fn define_from(s: &mut Session, src: &Drawing, name: &str) -> Result<String> {
     let name = d.blocks.keys().find(|k| k.eq_ignore_ascii_case(name)).cloned().unwrap_or_else(|| name.to_string());
     merge_tables(&mut d, src);
     let renames = block_names(&d, src, &name);
+    let handle_map = allocate_source_handles(&mut d, src, &renames);
     for (from, to) in &renames {
         let Some(b) = src.blocks.get(from) else { continue };
         let mut nb = (**b).clone();
         nb.name = to.clone();
         nb.entities = Default::default();
         for e in b.entities.iter() {
-            let e = adopt(&mut d, e, &renames);
+            let e = adopt(&mut d, e, &renames, &handle_map);
             nb.entities.push(e);
         }
         d.blocks.insert(to.clone(), Arc::new(nb));
@@ -118,7 +119,7 @@ fn define_from(s: &mut Session, src: &Drawing, name: &str) -> Result<String> {
     b.base = src.header.point("INSBASE").filter(|p| p.x.is_finite() && p.y.is_finite() && p.z.is_finite()).unwrap_or_default();
     let mut ents = Vec::new();
     for e in src.model.iter() {
-        let e = adopt(&mut d, e, &renames);
+        let e = adopt(&mut d, e, &renames, &handle_map);
         d.ensure_layer(&e.common.layer);
         ents.push(e);
     }
@@ -183,9 +184,27 @@ fn block_names(d: &Drawing, src: &Drawing, defining: &str) -> BTreeMap<String, S
 
 /// A copy of a source entity for this drawing: a fresh handle, block references renamed, and
 /// links to other source objects (associative dimension points) dropped.
-fn adopt(d:&mut Drawing,e:&Entity,renames:&BTreeMap<String,String>)->Entity {
+fn allocate_source_handles(d: &mut Drawing, src: &Drawing, renames: &BTreeMap<String, String>) -> HashMap<Handle, Handle> {
+    let mut map = HashMap::new();
+    for from in renames.keys() {
+        if let Some(b) = src.blocks.get(from) {
+            for e in b.entities.iter() { map.entry(e.handle).or_insert_with(|| d.new_handle()); }
+        }
+    }
+    for e in src.model.iter() { map.entry(e.handle).or_insert_with(|| d.new_handle()); }
+    map
+}
+
+fn remap_xdata_handles(e: &mut Entity, handle_map: &HashMap<Handle, Handle>) {
+    for tag in &mut e.common.xdata {
+        if tag.code == 1005 { tag.value = Handle::parse_hex(&tag.value).and_then(|h| handle_map.get(&h).copied()).map(|h| h.hex()).unwrap_or_else(|| "0".into()); }
+    }
+}
+
+fn adopt(_d:&mut Drawing,e:&Entity,renames:&BTreeMap<String,String>,handle_map:&HashMap<Handle,Handle>)->Entity {
     let mut e=e.clone();
-    e.handle=d.new_handle();
+    e.handle=*handle_map.get(&e.handle).expect("allocated INSERT source handle");
+    remap_xdata_handles(&mut e,handle_map);
     crate::cmd::modify::refresh_tbt360_bim_copy_identity(&mut e.common,e.handle);
     match &mut e.kind {
         EntityKind::Insert(i) => {

@@ -1317,6 +1317,17 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
     let layers: Vec<String> = d.layers.iter().map(|l| l.name.clone()).collect();
     let linetypes: Vec<String> = d.linetypes.iter().map(|l| l.name.clone()).collect();
     let ids: Vec<String> = sel.iter().map(|h| h.hex()).collect();
+    let mut locked_layers: Vec<String> = sel.iter().filter_map(|h| d.entity(*h)).filter_map(|e| d.layer(&e.common.layer).filter(|l| l.locked).map(|_| e.common.layer.clone())).collect();
+    locked_layers.sort();
+    locked_layers.dedup();
+    let selection_locked = !locked_layers.is_empty();
+    if selection_locked {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(egui::RichText::new(format!("{}: {}", crate::tl!("Read-only — locked layer"), locked_layers.join(", "))).color(t.warn));
+        });
+        ui.add_space(3.0);
+        ui.disable();
+    }
     let mut set: Option<Value> = None;
     let mut custom_set: Option<Value> = None;
     let group = |ui: &mut egui::Ui, title: &str| {

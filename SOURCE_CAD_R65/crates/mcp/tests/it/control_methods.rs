@@ -18,7 +18,7 @@ fn control_methods_lists_what_headless_answers() {
     let methods = b.call("control.methods", json!({})).unwrap();
     let methods = methods.as_array().unwrap();
     let doc = documented();
-    let missing = std::env::temp_dir().join("cadcraft-843-no-such-dir").join("x.dxf");
+    let missing = std::env::temp_dir().join(format!("cadcraft-843-no-such-dir-{}", std::process::id())).join("x.dxf");
     let params = json!({"path": missing.to_string_lossy()});
     for m in methods {
         let name = m["method"].as_str().unwrap();

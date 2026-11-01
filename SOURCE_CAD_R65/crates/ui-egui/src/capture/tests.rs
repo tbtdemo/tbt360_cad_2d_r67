@@ -13,6 +13,11 @@ fn app() -> CadApp {
     CadApp::new(Session::new(), Services::default())
 }
 
+/// Receive a capture reply with a bounded wait so a regression cannot hang the whole test binary.
+fn recv_reply(rx: &Receiver<Value>, what: &str) -> Value {
+    rx.recv_timeout(std::time::Duration::from_secs(3)).unwrap_or_else(|e| panic!("{what}: no reply within 3s: {e}"))
+}
+
 /// A visible, focused, 1-ppp surface of `size` with an 8192-pixel texture side.
 fn surface(size: egui::Vec2) -> SurfaceGeometry {
     SurfaceGeometry { viewport: Some(size), pixels_per_point: 1.0, max_texture_side: 8192, minimized: false, occluded: false, window_focused: true }
@@ -109,7 +114,7 @@ fn admission_counts_completed_but_undrained_and_never_evicts() {
     let (tx, rx) = channel();
     admit(&mut app, &ctx, None, tx);
     assert_eq!(app.shots.len(), MAX_REQUESTS, "the fifth request is rejected, not admitted");
-    let reply = rx.recv().expect("a rejection reply");
+    let reply = recv_reply(&rx, "a rejection reply");
     assert_eq!(reply["ok"], false);
     assert!(reply["error"].as_str().unwrap_or_default().contains("outstanding"), "{reply}");
     assert!(app.shots.requests.iter().all(|shot| shot.token != reply["request"].as_u64().unwrap_or_default()));
@@ -127,7 +132,7 @@ fn deadline_is_checked_before_writing_a_completed_image() {
     let image = Arc::new(ColorImage::filled([800, 600], Color32::RED));
     app.shots.requests[0].callback.take().expect("a callback").complete(image);
     drain(&mut app, &ctx);
-    let reply = rx.recv().expect("a timeout reply");
+    let reply = recv_reply(&rx, "a timeout reply");
     assert_eq!(reply["ok"], false);
     assert!(reply["error"].as_str().unwrap_or_default().contains("timeout"), "{reply}");
     assert!(app.shots.is_empty());
@@ -141,7 +146,7 @@ fn document_change_cancels_before_issuing() {
     let (rx, _) = admit_one(&mut app, &ctx);
     app.session.new_drawing(false);
     drain(&mut app, &ctx);
-    let reply = rx.recv().expect("a document-change reply");
+    let reply = recv_reply(&rx, "a document-change reply");
     assert!(reply["error"].as_str().unwrap_or_default().contains("document changed"), "{reply}");
     assert!(app.shots.is_empty());
 }
@@ -160,7 +165,7 @@ fn focus_change_cancels_an_unissued_capture() {
     assert_eq!(app.shots.len(), 1);
     ctx.memory_mut(|memory| memory.request_focus(focus_b));
     drain(&mut app, &ctx);
-    let reply = rx.recv().expect("a focus-change reply");
+    let reply = recv_reply(&rx, "a focus-change reply");
     assert!(reply["error"].as_str().unwrap_or_default().contains("focus changed"), "{reply}");
     assert!(app.shots.is_empty());
 }
@@ -180,8 +185,8 @@ fn issued_callbacks_reply_once_with_matching_tokens_and_distinct_pathless_files(
     assert_eq!(callbacks.len(), 2, "both requests issue in the same settled frame");
     complete(callbacks, [800, 600]);
     drain(&mut app, &ctx);
-    let first = rx1.recv().expect("the first reply");
-    let second = rx2.recv().expect("the second reply");
+    let first = recv_reply(&rx1, "the first reply");
+    let second = recv_reply(&rx2, "the second reply");
     assert_eq!((first["ok"].clone(), second["ok"].clone()), (json!(true), json!(true)));
     assert_eq!(first["request"].as_u64(), tokens.first().copied());
     assert_eq!(second["request"].as_u64(), tokens.get(1).copied());
@@ -206,7 +211,7 @@ fn document_switch_after_issue_rejects_the_completed_callback_without_writing() 
     complete(callbacks, [800, 600]);
     app.session.new_drawing(false);
     drain(&mut app, &ctx);
-    let reply = rx.recv().expect("a document-change reply");
+    let reply = recv_reply(&rx, "a document-change reply");
     assert_eq!(reply["request"].as_u64(), Some(token));
     assert!(reply["error"].as_str().unwrap_or_default().contains("document changed"), "{reply}");
     assert!(reply.get("result").is_none(), "a rejected capture must not report or write a file");
@@ -223,7 +228,7 @@ fn completed_callback_after_timeout_writes_nothing() {
     complete(callbacks, [800, 600]);
     app.shots.requests[0].deadline = Instant::now() - Duration::from_millis(1);
     drain(&mut app, &ctx);
-    let reply = rx.recv().expect("a timeout reply");
+    let reply = recv_reply(&rx, "a timeout reply");
     assert!(reply["error"].as_str().unwrap_or_default().contains("timeout"), "{reply}");
     assert!(reply.get("result").is_none(), "a timed-out capture must not write a file");
     assert!(app.shots.is_empty());
@@ -238,7 +243,7 @@ fn callback_completed_before_cancel_all_is_inert() {
     let (_, callbacks) = issue_after_settling(&mut app, &ctx);
     complete(callbacks, [800, 600]);
     cancel_all(&mut app);
-    let reply = rx.recv().expect("a cancellation reply");
+    let reply = recv_reply(&rx, "a cancellation reply");
     assert_eq!(reply["request"].as_u64(), Some(token));
     assert!(reply["error"].as_str().unwrap_or_default().contains("cancelled"), "{reply}");
     assert!(reply.get("result").is_none(), "cancellation wins over a late completion");
@@ -254,7 +259,7 @@ fn per_image_and_aggregate_budgets_reject_before_issue() {
     set_geometry(&mut app, &ctx, egui::vec2(5000.0, 5000.0));
     let (tx, rx) = channel();
     admit(&mut app, &ctx, None, tx);
-    let reply = rx.recv().expect("per-image rejection");
+    let reply = recv_reply(&rx, "per-image rejection");
     assert!(reply["error"].as_str().unwrap_or_default().contains("per-image"), "{reply}");
     assert!(app.shots.is_empty());
 
@@ -264,7 +269,7 @@ fn per_image_and_aggregate_budgets_reject_before_issue() {
     let _second = admit_one_at(&mut app, &ctx, egui::vec2(2500.0, 2500.0));
     let (tx, rx) = channel();
     admit(&mut app, &ctx, None, tx);
-    let reply = rx.recv().expect("aggregate rejection");
+    let reply = recv_reply(&rx, "aggregate rejection");
     assert!(reply["error"].as_str().unwrap_or_default().contains("outstanding requests"), "{reply}");
     assert_eq!(app.shots.len(), 2);
 }
@@ -315,7 +320,7 @@ fn an_invalid_pass_invalidates_the_retained_surface() {
     assert!(app.capture_identity_epoch > identity_epoch, "the identity epoch changes with the surface");
     let (tx, rx) = channel();
     admit(&mut app, &ctx, None, tx);
-    let reply = rx.recv().expect("an admission rejection");
+    let reply = recv_reply(&rx, "an admission rejection");
     assert_eq!(reply["ok"], false);
     assert!(reply["error"].as_str().unwrap_or_default().contains("not known"), "{reply}");
 }
@@ -365,7 +370,7 @@ fn a_discarded_pass_does_not_issue_and_the_settled_pass_does_once() {
     assert_eq!(app.ui_frames, 1, "one settled frame, not one per pass");
     complete(callbacks, [800, 600]);
     drain(&mut app, &ctx);
-    assert_eq!(rx.recv().expect("a reply")["ok"], true);
+    assert_eq!(recv_reply(&rx, "a reply")["ok"], true);
 }
 
 /// Issuance re-bases the expected image on the settled pass, so the saved interface zoom
@@ -385,7 +390,7 @@ fn issuance_uses_the_settled_interface_scale_not_the_admission_estimate() {
     assert_eq!(app.shots.requests[0].expected, [1600, 1200], "issued against the settled pass scale");
     complete(callbacks, [1600, 1200]);
     drain(&mut app, &ctx);
-    let reply = rx.recv().expect("a reply");
+    let reply = recv_reply(&rx, "a reply");
     assert_eq!(reply["ok"], true, "{reply}");
     let path = reply["result"]["path"].as_str().expect("a file").to_string();
     let _ = std::fs::remove_file(path);
@@ -406,7 +411,7 @@ fn a_document_switch_that_returns_still_rejects_the_queued_capture() {
     assert_eq!(active_document(&app), before, "the drawing and focus are back where they were");
     let (_, callbacks) = issue_after_settling(&mut app, &ctx);
     assert!(callbacks.is_empty(), "the request is rejected, not issued");
-    let reply = rx.recv().expect("a rejection reply");
+    let reply = recv_reply(&rx, "a rejection reply");
     assert!(reply["error"].as_str().unwrap_or_default().contains("changed"), "{reply}");
     assert!(reply.get("result").is_none());
 }
@@ -462,7 +467,7 @@ fn a_resize_while_settling_is_absorbed_at_issue() {
     assert_eq!(app.shots.requests[0].expected, [900, 600], "issued against the settled size");
     complete(callbacks, [900, 600]);
     drain(&mut app, &ctx);
-    let reply = rx.recv().expect("a reply");
+    let reply = recv_reply(&rx, "a reply");
     assert_eq!(reply["ok"], true, "{reply}");
     let path = reply["result"]["path"].as_str().expect("a file").to_string();
     let _ = std::fs::remove_file(path);

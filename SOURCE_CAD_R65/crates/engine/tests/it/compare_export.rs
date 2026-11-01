@@ -464,7 +464,7 @@ fn a_named_block_with_the_same_relative_image_path_from_another_folder_shows_the
         part.entities.push(Entity::new(Handle(first), EntityKind::Image(image)));
         part
     };
-    let dir = std::env::temp_dir().join("compareexport-image-folder");
+    let dir = std::env::temp_dir().join(format!("compareexport-image-folder-{}", std::process::id()));
     let mut s = Session::new();
     s.doc_mut().unwrap().blocks.insert("PART".into(), Arc::new(part(0x700)));
     s.doc_mut().unwrap().add(&Space::Model, Common::default(), EntityKind::Insert(insert("PART"))).unwrap();
@@ -715,7 +715,7 @@ fn copies_drop_associations_to_the_source_objects() {
 
 #[test]
 fn relative_xref_paths_become_paths_from_the_source_folder() {
-    let folder = std::env::temp_dir().join("cadcraft-compareexport");
+    let folder = std::env::temp_dir().join(format!("cadcraft-compareexport-{}", std::process::id()));
     let host = folder.join("host.dxf");
     let mut d = Drawing::new_imperial();
     let mut x = Block::new("X");

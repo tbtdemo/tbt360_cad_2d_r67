@@ -10,7 +10,7 @@
 //! The clipboard can also travel as DXF text ([`system_text`], [`load_system_text`]), so a front
 //! end can put it on the system clipboard and paste it into another CADCraft window.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use cadcraft_doc::{Block, Drawing, Entity, EntityKind, HVal, Handle};
@@ -80,9 +80,10 @@ pub(crate) fn paste(s: &mut Session, m: &Mat3) -> Result<Vec<Handle>> {
     let space = s.space();
     let d = s.doc_mut()?;
     let renames = defs.map(|x| merge(d, &x)).unwrap_or_default();
+    let handle_map=allocate_handles(d,&ents);
     let mut out = Vec::new();
     for e in &ents {
-        let mut e=adopt(d,e,&renames);
+        let mut e=adopt_with_handle(d,e,*handle_map.get(&e.handle).expect("allocated clipboard handle"),&renames,&handle_map);
         super::modify::refresh_tbt360_bim_copy_identity(&mut e.common,e.handle);
         e.kind.transform(m);
         d.ensure_layer(&e.common.layer);
@@ -117,8 +118,9 @@ pub(crate) fn paste_block(s: &mut Session, at: Vec2) -> Result<Handle> {
         .ok_or_else(|| bad("pasteblock", "no free block name"))?;
     let mut b = Block::new(&name);
     b.base = base.to3(0.0);
+    let handle_map=allocate_handles(d,&ents);
     for e in &ents {
-        let mut e=adopt(d,e,&renames);
+        let mut e=adopt_with_handle(d,e,*handle_map.get(&e.handle).expect("allocated clipboard handle"),&renames,&handle_map);
         super::modify::refresh_tbt360_bim_copy_identity(&mut e.common,e.handle);
         d.ensure_layer(&e.common.layer);
         b.entities.push(e);
@@ -148,8 +150,9 @@ pub fn system_text(s: &Session) -> Option<String> {
         None => BTreeMap::new(),
     };
     d.header.set("INSBASE", HVal::Point(s.clipboard_base.to3(0.0)));
+    let handle_map=allocate_handles(&mut d,&s.clipboard);
     for e in &s.clipboard {
-        let e = adopt(&mut d, e, &renames);
+        let e=adopt_with_handle(&mut d,e,*handle_map.get(&e.handle).expect("allocated clipboard handle"),&renames,&handle_map);
         d.ensure_layer(&e.common.layer);
         d.model.push(e);
     }
@@ -302,13 +305,27 @@ fn merge(d: &mut Drawing, defs: &Drawing) -> BTreeMap<String, String> {
     add(&mut d.mleader_styles, &defs.mleader_styles, |t| &t.name);
     add(&mut d.table_styles, &defs.table_styles, |t| &t.name);
     let renames = block_names(d, defs);
+    // Allocate handles for the entire copied block graph before cloning any definition. XDATA 1005
+    // may legally point from an entity in one nested block definition to an entity in another; a
+    // per-block map would turn those cross-block links into dangling handles.
+    let mut block_handle_map=HashMap::new();
+    for from in renames.keys() {
+        if let Some(b)=defs.blocks.get(from) {
+            for e in &b.entities {
+                if !block_handle_map.contains_key(&e.handle) {
+                    let h=d.new_handle();
+                    block_handle_map.insert(e.handle,h);
+                }
+            }
+        }
+    }
     for (from, to) in &renames {
         let Some(b) = defs.blocks.get(from) else { continue };
         let mut nb = (**b).clone();
         nb.name = to.clone();
         nb.entities = Default::default();
-        for e in b.entities.iter() {
-            let e = adopt(d, e, &renames);
+        for e in &b.entities {
+            let e=adopt_with_handle(d,e,*block_handle_map.get(&e.handle).expect("allocated block handle"),&renames,&block_handle_map);
             d.ensure_layer(&e.common.layer);
             nb.entities.push(e);
         }
@@ -347,9 +364,21 @@ fn block_names(d: &Drawing, defs: &Drawing) -> BTreeMap<String, String> {
 
 /// A copy of a clipboard object for `d`: a fresh handle, block references renamed, and links to
 /// objects of the source drawing (associative dimension points) dropped.
-fn adopt(d:&mut Drawing,e:&Entity,renames:&BTreeMap<String,String>)->Entity {
+fn allocate_handles(d:&mut Drawing,ents:&[Entity])->HashMap<Handle,Handle> {
+    ents.iter().map(|e|(e.handle,d.new_handle())).collect()
+}
+
+fn remap_clipboard_xdata(e:&mut Entity,handle_map:&HashMap<Handle,Handle>) {
+    for tag in &mut e.common.xdata {
+        if tag.code!=1005 { continue; }
+        tag.value=Handle::parse_hex(&tag.value).and_then(|h|handle_map.get(&h).copied()).map(|h|h.hex()).unwrap_or_else(||"0".into());
+    }
+}
+
+fn adopt_with_handle(_d:&mut Drawing,e:&Entity,new_handle:Handle,renames:&BTreeMap<String,String>,handle_map:&HashMap<Handle,Handle>)->Entity {
     let mut e=e.clone();
-    e.handle=d.new_handle();
+    e.handle=new_handle;
+    remap_clipboard_xdata(&mut e,handle_map);
     super::modify::refresh_tbt360_bim_copy_identity(&mut e.common,e.handle);
     match &mut e.kind {
         EntityKind::Insert(i) => {
@@ -367,3 +396,4 @@ fn adopt(d:&mut Drawing,e:&Entity,renames:&BTreeMap<String,String>)->Entity {
     }
     e
 }
+

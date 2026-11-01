@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
-use cadcraft_doc::{Drawing, EntityStore, MAX_BLOCK_DEPTH, XrefStatus};
+use cadcraft_doc::{Drawing, EntityStore, Handle, MAX_BLOCK_DEPTH, XrefStatus};
 
 use super::load::{Sym, has_prefix, rename_refs};
 
@@ -225,9 +225,14 @@ fn xbind_in(d: &mut Drawing, sym: Sym, name: &str, depth: usize) -> Result<Strin
             nb.description = b.description.clone();
             nb.explodable = b.explodable;
             nb.units = b.units;
+            let mut handle_map = HashMap::new();
+            for e in b.entities.iter() { handle_map.entry(e.handle).or_insert_with(|| d.new_handle()); }
             for e in b.entities.iter() {
                 let mut e=(**e).clone();
-                e.handle=d.new_handle();
+                e.handle=*handle_map.get(&e.handle).expect("allocated XBIND source handle");
+                for tag in &mut e.common.xdata {
+                    if tag.code == 1005 { tag.value = Handle::parse_hex(&tag.value).and_then(|h| handle_map.get(&h).copied()).map(|h| h.hex()).unwrap_or_else(|| "0".into()); }
+                }
                 crate::cmd::modify::refresh_tbt360_bim_copy_identity(&mut e.common,e.handle);
                 rename_refs(&mut e,&get);
                 nb.entities.push(e);

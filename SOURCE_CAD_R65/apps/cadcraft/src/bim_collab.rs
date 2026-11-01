@@ -53,6 +53,59 @@ impl Discipline {
     }
 }
 
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CollaborationTab {
+    Overview,
+    Workspace,
+    Issues,
+    Sync,
+    Access,
+}
+
+impl CollaborationTab {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Overview => "Tổng quan",
+            Self::Workspace => "Không gian phối hợp",
+            Self::Issues => "Issue / Clash",
+            Self::Sync => "Đồng bộ",
+            Self::Access => "Quyền truy cập",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IssueViewFilter {
+    Active,
+    Open,
+    InProgress,
+    Resolved,
+    All,
+}
+
+impl IssueViewFilter {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Active => "Đang hoạt động",
+            Self::Open => "Mở",
+            Self::InProgress => "Đang xử lý",
+            Self::Resolved => "Đã xử lý",
+            Self::All => "Tất cả",
+        }
+    }
+
+    fn matches(self, status: IssueStatus) -> bool {
+        match self {
+            Self::Active => status != IssueStatus::Resolved,
+            Self::Open => status == IssueStatus::Open,
+            Self::InProgress => status == IssueStatus::InProgress,
+            Self::Resolved => status == IssueStatus::Resolved,
+            Self::All => true,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConnectionMode {
     Offline,
@@ -215,6 +268,20 @@ pub struct ScopeProgress {
     pub updated_by: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum IssuePriority {
+    P0,
+    P1,
+    P2,
+}
+
+impl IssuePriority {
+    fn label(self) -> &'static str {
+        match self { Self::P0 => "P0 Khẩn cấp", Self::P1 => "P1 Cao", Self::P2 => "P2 Thường" }
+    }
+    fn rank(self) -> u8 { match self { Self::P0=>0, Self::P1=>1, Self::P2=>2 } }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IssueStatus {
     Open,
@@ -261,6 +328,7 @@ pub struct CoordinationIssue {
     pub handle: Option<cadcraft_doc::Handle>,
     pub assigned_to: String,
     pub description: String,
+    pub priority: IssuePriority,
     pub status: IssueStatus,
 }
 
@@ -530,6 +598,7 @@ fn slot_matches(meta: &BimEntityMeta, slot: &ViewSlot) -> bool {
 }
 
 pub struct State {
+    pub ui_tab: CollaborationTab,
     pub connection: ConnectionMode,
     pub layout: ViewLayout,
     pub current_account_id: String,
@@ -551,6 +620,13 @@ pub struct State {
     pub share_grants: Vec<ShareGrant>,
     pub progress: Vec<ScopeProgress>,
     pub issues: Vec<CoordinationIssue>,
+    pub issue_search: String,
+    pub issue_only_mine: bool,
+    pub issue_status_filter: IssueViewFilter,
+    pub issue_discipline_filter: Option<Discipline>,
+    pub issue_priority_filter: Option<IssuePriority>,
+    pub issue_bulk_selection: Vec<u64>,
+    pub coordination_focus_mode: bool,
     pub coordination_candidates: Vec<CoordinationCandidate>,
     pub audit_log: Vec<AuditEntry>,
     next_audit_sequence: u64,
@@ -582,6 +658,7 @@ impl Default for State {
             ViewSlot { floor_id: 1, discipline: Discipline::Plumbing, owner_account_id: None, overlay_opacity: 0.35, show_other_users: true, mode: ViewMode::Reference },
         ];
         Self {
+            ui_tab: CollaborationTab::Overview,
             connection: ConnectionMode::Offline,
             layout: ViewLayout::Two,
             current_account_id: "local-owner".into(),
@@ -622,6 +699,13 @@ impl Default for State {
                 ScopeProgress { floor_id: 1, discipline: Discipline::Plumbing, percent: 0, status: ScopeStatus::NotStarted, updated_by: "mep-water-01".into() },
             ],
             issues: Vec::new(),
+            issue_search: String::new(),
+            issue_only_mine: false,
+            issue_status_filter: IssueViewFilter::Active,
+            issue_discipline_filter: None,
+            issue_priority_filter: None,
+            issue_bulk_selection: Vec::new(),
+            coordination_focus_mode: false,
             coordination_candidates: Vec::new(),
             audit_log: Vec::new(),
             next_audit_sequence: 1,
@@ -858,6 +942,7 @@ impl State {
             handle,
             assigned_to: self.users.iter().find(|u| u.discipline == target_discipline).map(|u| u.account_id.clone()).unwrap_or_default(),
             description: "Kiểm tra phối hợp tại vị trí/đối tượng được chọn".into(),
+            priority: IssuePriority::P1,
             status: IssueStatus::Open,
         });
         let issue_id = self.next_issue_id;
@@ -1012,6 +1097,7 @@ impl State {
             "handle": i.handle.map(|h| h.hex()),
             "assigned_to": i.assigned_to,
             "description": i.description,
+            "priority": i.priority.label(),
             "status": i.status.label()
         })).collect::<Vec<_>>();
         serde_json::json!({
@@ -1179,6 +1265,7 @@ impl State {
                     handle,
                     assigned_to: item.get("assigned_to").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
                     description: item.get("description").and_then(serde_json::Value::as_str).unwrap_or_default().to_string(),
+                    priority: match item.get("priority").and_then(serde_json::Value::as_str) { Some("P0 Khẩn cấp")=>IssuePriority::P0, Some("P2 Thường")=>IssuePriority::P2, _=>IssuePriority::P1 },
                     status: match item.get("status").and_then(serde_json::Value::as_str) {
                         Some("Đang xử lý") => IssueStatus::InProgress,
                         Some("Đã xử lý") => IssueStatus::Resolved,
@@ -1390,9 +1477,425 @@ pub fn sync_render_filters(app: &mut cadcraft_ui_egui::CadApp, state: &State) {
     app.tile_render_filters = filters;
 }
 
+
+fn coordination_header(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
+    state.sync_scope_from_active_view(app);
+    let selected=app.session.selection().to_vec();
+    state.update_presence(selected.first().copied());
+    let floor=state.floors.iter().find(|f| f.id==state.active_floor_id).map(|f| f.name.as_str()).unwrap_or("Chưa chọn tầng");
+    let connection=match state.connection { ConnectionMode::Offline=>"Offline", ConnectionMode::Online=>"Đã đồng bộ" };
+
+    ui.horizontal(|ui| {
+        ui.vertical(|ui| {
+            ui.heading("Phối hợp thiết kế");
+            ui.label("Không gian làm việc cộng tác BIM – phát hiện xung đột, giao việc, xử lý và đồng bộ thiết kế.");
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui| {
+            ui.label(format!("● {}",connection));
+            ui.separator();
+            ui.label(format!("{} người đang phối hợp",state.presence.len().max(1)));
+            ui.separator();
+            ui.label(format!("Dự án: {}",state.project_name));
+        });
+    });
+    ui.add_space(6.0);
+    ui.horizontal_wrapped(|ui| {
+        for tab in [CollaborationTab::Overview,CollaborationTab::Workspace,CollaborationTab::Issues,CollaborationTab::Sync,CollaborationTab::Access] {
+            ui.selectable_value(&mut state.ui_tab,tab,tab.label());
+        }
+        ui.separator();
+        ui.small(format!("{} / {}",floor,state.active_discipline.label()));
+    });
+    ui.separator();
+}
+
+fn coordination_overview(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
+    let health=state.model_health(app);
+    let selected=app.session.selection().to_vec();
+    let active_people=state.presence.len().max(1);
+    let open_issues=state.issues.iter().filter(|i| i.status==IssueStatus::Open).count();
+    let doing_issues=state.issues.iter().filter(|i| i.status==IssueStatus::InProgress).count();
+    let resolved_issues=state.issues.iter().filter(|i| i.status==IssueStatus::Resolved).count();
+    let blockers=health.conflicts+health.unscoped_entities+open_issues;
+    let can_close_issue=health.conflicts==0 && state.dirty_local_changes==0;
+    let me_name=state.active_user().map(|u|u.display_name.clone()).unwrap_or_else(||state.current_account_id.clone());
+    let floor=state.floors.iter().find(|f|f.id==state.active_floor_id).map(|f|f.name.as_str()).unwrap_or("?");
+    let mine_open=state.issues.iter().filter(|i|i.status!=IssueStatus::Resolved && (i.assigned_to==me_name || i.assigned_to==state.current_account_id)).count();
+    let next_mine_handle=state.issues.iter().filter(|i|i.status!=IssueStatus::Resolved && (i.assigned_to==me_name || i.assigned_to==state.current_account_id) && i.handle.is_some()).min_by_key(|i|(i.priority.rank(),i.id)).and_then(|i|i.handle);
+
+    ui.horizontal_wrapped(|ui| {
+        let mut card=|ui:&mut egui::Ui,title:&str,value:String,note:String,color:egui::Color32| {
+            ui.group(|ui| {
+                ui.set_min_width(165.0);
+                ui.label(title);
+                ui.colored_label(color,egui::RichText::new(value).size(24.0).strong());
+                ui.small(note);
+            });
+        };
+        card(ui,"Người đang phối hợp",active_people.to_string(),"Đang hoạt động".into(),egui::Color32::LIGHT_BLUE);
+        card(ui,"Issue mở",open_issues.to_string(),format!("{} đang xử lý",doing_issues),egui::Color32::YELLOW);
+        card(ui,"Thay đổi chờ đồng bộ",health.pending_changes.to_string(),format!("{} thay đổi local",state.dirty_local_changes),egui::Color32::LIGHT_GREEN);
+        card(ui,"Xung đột",health.conflicts.to_string(),if health.conflicts==0{"Không có xung đột".into()}else{"Cần xử lý".into()},egui::Color32::LIGHT_RED);
+        card(ui,"Việc cần xử lý",blockers.to_string(),format!("{} đã hoàn tất",resolved_issues),egui::Color32::GOLD);
+    });
+
+    ui.add_space(6.0);
+    ui.group(|ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.strong("Thao tác nhanh");
+            ui.separator();
+            ui.label(format!("Scope: {} / {}",floor,state.active_discipline.label()));
+            ui.label(format!("Selection: {}",selected.len()));
+            ui.separator();
+            if ui.add_enabled(!selected.is_empty(),egui::Button::new("Tạo Issue từ selection")).clicked(){state.ui_tab=CollaborationTab::Issues;}
+            if state.connection==ConnectionMode::Online && state.dirty_local_changes>0 && ui.button("Đồng bộ ngay").clicked(){state.sync_pending_changes();}
+            if !state.work_session_active {
+                let can_edit=state.can_edit_active_view(app);
+                if ui.add_enabled(can_edit,egui::Button::new("Bắt đầu phiên thiết kế")).clicked(){state.start_work_session(app);}
+            } else if ui.button("Kết thúc phiên").clicked(){state.stop_work_session();}
+            if health.conflicts>0 && ui.button("Xử lý xung đột").clicked(){state.ui_tab=CollaborationTab::Sync;}
+            if let Some(handle)=next_mine_handle {
+                if ui.button(format!("Việc tiếp theo của tôi ({})",mine_open)).clicked(){app.session.set_selection(vec![handle]);}
+            } else if mine_open>0 { ui.label(format!("{} việc của tôi chưa có đối tượng để định vị",mine_open)); }
+        });
+    });
+
+    ui.add_space(8.0);
+    ui.group(|ui| {
+        ui.strong("Quy trình phối hợp");
+        ui.add_space(4.0);
+        ui.horizontal_wrapped(|ui| {
+            let steps=[
+                ("1  Phát hiện","Tự động kiểm tra xung đột / phát hiện Issue"),
+                ("2  Giao việc","Phân công phụ trách, đặt hạn xử lý"),
+                ("3  Xử lý","Cập nhật, điều chỉnh mô hình / bản vẽ"),
+                ("4  Đồng bộ","Đồng bộ thay đổi giữa các bộ môn"),
+                ("5  Xác nhận & đóng","Kiểm tra kết quả, đóng Issue / Clash"),
+            ];
+            for (idx,(title,desc)) in steps.iter().enumerate() {
+                ui.group(|ui| { ui.set_min_width(175.0); ui.strong(*title); ui.small(*desc); });
+                if idx+1<steps.len(){ui.label("→");}
+            }
+        });
+    });
+
+    ui.add_space(8.0);
+    let avail=ui.available_width();
+    let show_sidebar=!state.coordination_focus_mode && avail>=1040.0;
+    let left=if show_sidebar {(avail*0.68).clamp(560.0,900.0)} else {avail.max(560.0)};
+    if !show_sidebar {
+        ui.horizontal_wrapped(|ui| {
+            if state.coordination_focus_mode { ui.colored_label(egui::Color32::LIGHT_BLUE,"Chế độ tập trung Issue đang bật"); }
+            else { ui.small("Cửa sổ hẹp: panel Ai đang làm gì / Phiên thiết kế được thu gọn để ưu tiên bảng Issue."); }
+            if state.coordination_focus_mode && ui.small_button("Tắt tập trung").clicked(){state.coordination_focus_mode=false;}
+        });
+    }
+    ui.horizontal_top(|ui| {
+        ui.vertical(|ui| {
+            ui.set_width(left);
+            ui.group(|ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.strong("Danh sách Issue / Clash");
+                    ui.separator();
+                    ui.add_sized([210.0,22.0],egui::TextEdit::singleline(&mut state.issue_search).hint_text("Tìm mã, nội dung, phụ trách..."));
+                    egui::ComboBox::from_id_salt("coord_issue_status_filter").selected_text(state.issue_status_filter.label()).show_ui(ui,|ui| {
+                        for filter in [IssueViewFilter::Active,IssueViewFilter::Open,IssueViewFilter::InProgress,IssueViewFilter::Resolved,IssueViewFilter::All] {
+                            ui.selectable_value(&mut state.issue_status_filter,filter,filter.label());
+                        }
+                    });
+                    egui::ComboBox::from_id_salt("coord_issue_discipline_filter").selected_text(state.issue_discipline_filter.map(|d|d.label()).unwrap_or("Tất cả bộ môn")).show_ui(ui,|ui| {
+                        ui.selectable_value(&mut state.issue_discipline_filter,None,"Tất cả bộ môn");
+                        for discipline in Discipline::ALL { ui.selectable_value(&mut state.issue_discipline_filter,Some(discipline),discipline.label()); }
+                    });
+                    egui::ComboBox::from_id_salt("coord_issue_priority_filter").selected_text(state.issue_priority_filter.map(|p|p.label()).unwrap_or("Tất cả ưu tiên")).show_ui(ui,|ui| {
+                        ui.selectable_value(&mut state.issue_priority_filter,None,"Tất cả ưu tiên");
+                        for priority in [IssuePriority::P0,IssuePriority::P1,IssuePriority::P2] { ui.selectable_value(&mut state.issue_priority_filter,Some(priority),priority.label()); }
+                    });
+                    ui.checkbox(&mut state.issue_only_mine,"Chỉ việc của tôi");
+                    ui.checkbox(&mut state.coordination_focus_mode,"Tập trung Issue");
+                    if (!state.issue_search.is_empty() || state.issue_only_mine || state.issue_status_filter!=IssueViewFilter::Active || state.issue_discipline_filter.is_some() || state.issue_priority_filter.is_some()) && ui.small_button("Xóa lọc").clicked() {
+                        state.issue_search.clear();
+                        state.issue_only_mine=false;
+                        state.issue_status_filter=IssueViewFilter::Active;
+                        state.issue_discipline_filter=None;
+                        state.issue_priority_filter=None;
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui| {
+                        if ui.button("Mở quản lý").clicked(){state.ui_tab=CollaborationTab::Issues;}
+                        if ui.button("Quét xung đột").clicked(){state.scan_2d_coordination_candidates(app,state.active_floor_id,20_000);}
+                    });
+                });
+                if !can_close_issue { ui.small("Hoàn tất Issue bị khóa khi còn thay đổi local hoặc xung đột chưa xử lý. Hãy đồng bộ và giải quyết conflict trước khi đóng."); }
+                ui.separator();
+                let query=state.issue_search.trim().to_ascii_lowercase();
+                let filtered_count=state.issues.iter().filter(|issue| {
+                    if !state.issue_status_filter.matches(issue.status) { return false; }
+                    if state.issue_discipline_filter.is_some_and(|d|d!=issue.target_discipline) { return false; }
+                    if state.issue_priority_filter.is_some_and(|p|p!=issue.priority) { return false; }
+                    let mine=issue.assigned_to==me_name || issue.assigned_to==state.current_account_id;
+                    if state.issue_only_mine && !mine { return false; }
+                    if query.is_empty() { return true; }
+                    let issue_code=format!("ISS-{:03}",issue.id);
+                    format!("{} {} {} {}",issue_code,issue.description,issue.assigned_to,issue.target_discipline.label()).to_ascii_lowercase().contains(&query)
+                }).count();
+                ui.horizontal_wrapped(|ui| {
+                    ui.small(format!("Hiển thị {} / {} Issue",filtered_count,state.issues.len()));
+                    ui.separator();
+                    ui.small(format!("Đã chọn {}",state.issue_bulk_selection.len()));
+                    if ui.small_button("Chọn tất cả đang lọc").clicked() {
+                        state.issue_bulk_selection=state.issues.iter().filter(|issue| {
+                            state.issue_status_filter.matches(issue.status)
+                                && state.issue_discipline_filter.is_none_or(|d|d==issue.target_discipline)
+                                && state.issue_priority_filter.is_none_or(|p|p==issue.priority)
+                                && (!state.issue_only_mine || issue.assigned_to==me_name || issue.assigned_to==state.current_account_id)
+                                && (query.is_empty() || format!("ISS-{:03} {} {} {}",issue.id,issue.description,issue.assigned_to,issue.target_discipline.label()).to_ascii_lowercase().contains(&query))
+                        }).map(|i|i.id).collect();
+                    }
+                    if !state.issue_bulk_selection.is_empty() && ui.small_button("Bỏ chọn").clicked(){state.issue_bulk_selection.clear();}
+                    let selected_ids=state.issue_bulk_selection.clone();
+                    if !selected_ids.is_empty() && ui.small_button(format!("Nhận {} Issue",selected_ids.len())).clicked() {
+                        for issue in &mut state.issues { if selected_ids.contains(&issue.id) && issue.status==IssueStatus::Open { issue.status=IssueStatus::InProgress; issue.assigned_to=me_name.clone(); } }
+                    }
+                    let done=ui.add_enabled(!selected_ids.is_empty() && can_close_issue,egui::Button::new(format!("Hoàn tất {} Issue",selected_ids.len())).small());
+                    if done.on_hover_text(if can_close_issue{"Hoàn tất hàng loạt các Issue đã chọn"}else{"Cần đồng bộ và xử lý xung đột trước"}).clicked() {
+                        for issue in &mut state.issues { if selected_ids.contains(&issue.id) && issue.status==IssueStatus::InProgress { issue.status=IssueStatus::Resolved; } }
+                        state.issue_bulk_selection.clear();
+                    }
+                });
+                egui::ScrollArea::vertical().max_height(330.0).show(ui,|ui| {
+                    egui::Grid::new("coord_overview_issue_list").striped(true).show(ui,|ui| {
+                        ui.strong("✓"); ui.strong("Mã"); ui.strong("Ưu tiên"); ui.strong("Nội dung"); ui.strong("Bộ môn"); ui.strong("Phụ trách"); ui.strong("Trạng thái"); ui.strong("Tác vụ"); ui.end_row();
+                        let mut shown=0usize;
+                        for issue in &mut state.issues {
+                            if !state.issue_status_filter.matches(issue.status) { continue; }
+                            if state.issue_discipline_filter.is_some_and(|d|d!=issue.target_discipline) { continue; }
+                            if state.issue_priority_filter.is_some_and(|p|p!=issue.priority) { continue; }
+                            let issue_code=format!("ISS-{:03}",issue.id);
+                            let mine=issue.assigned_to==me_name || issue.assigned_to==state.current_account_id;
+                            if state.issue_only_mine && !mine { continue; }
+                            if !query.is_empty() {
+                                let hay=format!("{} {} {} {}",issue_code,issue.description,issue.assigned_to,issue.target_discipline.label()).to_ascii_lowercase();
+                                if !hay.contains(&query){continue;}
+                            }
+                            shown+=1;
+                            let mut bulk_selected=state.issue_bulk_selection.contains(&issue.id);
+                            if ui.checkbox(&mut bulk_selected,"").changed() {
+                                if bulk_selected { if !state.issue_bulk_selection.contains(&issue.id){state.issue_bulk_selection.push(issue.id);} }
+                                else { state.issue_bulk_selection.retain(|id|*id!=issue.id); }
+                            }
+                            ui.label(issue_code);
+                            let priority_color=match issue.priority { IssuePriority::P0=>egui::Color32::LIGHT_RED, IssuePriority::P1=>egui::Color32::YELLOW, IssuePriority::P2=>egui::Color32::LIGHT_BLUE };
+                            ui.colored_label(priority_color,issue.priority.label());
+                            if let Some(handle)=issue.handle {
+                                if ui.button(&issue.description).on_hover_text("Chọn và định vị đối tượng liên quan").clicked(){app.session.set_selection(vec![handle]);}
+                            } else { ui.label(&issue.description); }
+                            ui.label(issue.target_discipline.label());
+                            ui.label(if issue.assigned_to.trim().is_empty(){"Chưa giao"}else{issue.assigned_to.as_str()});
+                            let status_color=match issue.status { IssueStatus::Open=>egui::Color32::LIGHT_RED, IssueStatus::InProgress=>egui::Color32::LIGHT_BLUE, IssueStatus::Resolved=>egui::Color32::LIGHT_GREEN };
+                            ui.colored_label(status_color,issue.status.label());
+                            ui.horizontal(|ui| {
+                                if issue.status==IssueStatus::Open && ui.small_button("Nhận").clicked(){issue.status=IssueStatus::InProgress;issue.assigned_to=me_name.clone();}
+                                let done=ui.add_enabled(issue.status==IssueStatus::InProgress && can_close_issue,egui::Button::new("Hoàn tất").small());
+                                if done.on_hover_text(if can_close_issue{"Đánh dấu đã xử lý"}else{"Cần đồng bộ và xử lý xung đột trước"}).clicked(){issue.status=IssueStatus::Resolved;}
+                                if let Some(handle)=issue.handle { if ui.small_button("Định vị").clicked(){app.session.set_selection(vec![handle]);} }
+                            });
+                            ui.end_row();
+                            if shown>=10 { break; }
+                        }
+                        if shown==0 { ui.label(""); ui.label("-"); ui.label("-"); ui.label("Không có Issue phù hợp bộ lọc"); ui.label("-"); ui.label("-"); ui.colored_label(egui::Color32::LIGHT_GREEN,"Sạch"); ui.label(""); ui.end_row(); }
+                    });
+                });
+            });
+        });
+
+        if show_sidebar { ui.vertical(|ui| {
+            ui.group(|ui| {
+                ui.set_min_width(330.0);
+                ui.horizontal(|ui| { ui.strong("Ai đang làm gì"); ui.label(format!("{} người",state.presence.len())); });
+                ui.separator();
+                if state.presence.is_empty() {
+                    ui.label("Chưa có thành viên online khác.");
+                    ui.small("Khi kết nối server, khu vực này hiển thị người dùng, bộ môn, tầng và đối tượng họ đang thao tác.");
+                } else {
+                    for p in state.presence.iter().take(5) {
+                        let name=state.users.iter().find(|u|u.account_id==p.account_id).map(|u|u.display_name.as_str()).unwrap_or(&p.account_id);
+                        let floor=state.floors.iter().find(|f|f.id==p.floor_id).map(|f|f.name.as_str()).unwrap_or("?");
+                        ui.horizontal(|ui| {
+                            ui.colored_label(egui::Color32::LIGHT_GREEN,"●");
+                            ui.vertical(|ui| { ui.strong(name); ui.small(format!("{} · {}",p.discipline.label(),floor)); });
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui| {
+                                if let Some(handle)=p.selected_handle { if ui.small_button("Định vị").clicked(){app.session.set_selection(vec![handle]);} }
+                            });
+                        });
+                        ui.separator();
+                    }
+                }
+            });
+            ui.add_space(8.0);
+            ui.group(|ui| {
+                ui.set_min_width(330.0);
+                ui.strong("Thông tin phiên thiết kế");
+                ui.separator();
+                ui.horizontal(|ui| {ui.label("Phiên hiện hành");ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{ui.colored_label(if state.work_session_active{egui::Color32::LIGHT_GREEN}else{egui::Color32::GRAY},if state.work_session_active{"Đang hoạt động"}else{"Chưa bắt đầu"});});});
+                ui.horizontal(|ui| {ui.label("Scope");ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{ui.label(format!("{} / {}",floor,state.active_discipline.label()));});});
+                ui.horizontal(|ui| {ui.label("Đối tượng đang chọn");ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{ui.label(selected.len().to_string());});});
+                ui.horizontal(|ui| {ui.label("Thay đổi local");ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{ui.label(state.dirty_local_changes.to_string());});});
+                ui.horizontal(|ui| {ui.label("Trạng thái đồng bộ");ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui|{ui.colored_label(if health.conflicts==0{egui::Color32::LIGHT_GREEN}else{egui::Color32::LIGHT_RED},if health.conflicts==0{"Sẵn sàng"}else{"Có xung đột"});});});
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    if state.connection==ConnectionMode::Online && state.dirty_local_changes>0 && ui.button("Đồng bộ ngay").clicked(){state.sync_pending_changes();}
+                    if health.conflicts>0 && ui.button("Mở xử lý conflict").clicked(){state.ui_tab=CollaborationTab::Sync;}
+                    if !state.work_session_active {
+                        let can_edit=state.can_edit_active_view(app);
+                        if ui.add_enabled(can_edit,egui::Button::new("Bắt đầu phiên")).clicked(){state.start_work_session(app);}
+                    } else if ui.button("Kết thúc phiên").clicked(){state.stop_work_session();}
+                });
+            });
+        }); }
+    });
+}
+
+fn coordination_issues(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
+    let open_count=state.issues.iter().filter(|i|i.status==IssueStatus::Open).count();
+    let doing_count=state.issues.iter().filter(|i|i.status==IssueStatus::InProgress).count();
+    let done_count=state.issues.iter().filter(|i|i.status==IssueStatus::Resolved).count();
+    ui.horizontal_wrapped(|ui| {
+        ui.heading("Issue / Clash");
+        ui.separator();
+        ui.label(format!("Mở {}",open_count));
+        ui.label(format!("Đang xử lý {}",doing_count));
+        ui.label(format!("Đã xử lý {}",done_count));
+        ui.separator();
+        if ui.button("Quét giao cắt tầng hiện tại").clicked() { state.scan_2d_coordination_candidates(app,state.active_floor_id,20_000); }
+        ui.label(format!("Ứng viên: {}",state.coordination_candidates.len()));
+    });
+    ui.label("Luồng chuẩn: phát hiện → tạo issue → giao người phụ trách → xử lý trên CAD → đồng bộ → điều phối xác nhận → đóng. Quét 2D chỉ là cảnh báo sơ bộ, không thay thế clash BIM 3D.");
+
+    let selected=app.session.selection().first().copied();
+    ui.group(|ui| {
+        ui.strong("Tạo issue nhanh từ selection");
+        if selected.is_none() { ui.colored_label(egui::Color32::YELLOW,"Chọn một đối tượng CAD trước khi tạo issue."); }
+        ui.horizontal_wrapped(|ui| {
+            for discipline in [Discipline::Structure,Discipline::Electrical,Discipline::Plumbing,Discipline::Hvac] {
+                if ui.add_enabled(selected.is_some(),egui::Button::new(format!("Giao → {}",discipline.label()))).clicked() { state.create_issue_from_selection(selected,discipline); }
+            }
+        });
+    });
+
+    ui.add_space(6.0);
+    ui.group(|ui| {
+        ui.horizontal_wrapped(|ui| {
+            ui.strong("Kanban trạng thái");
+            ui.label(format!("Chưa nhận: {}",open_count));
+            ui.label("→");
+            ui.label(format!("Đang xử lý: {}",doing_count));
+            ui.label("→");
+            ui.label(format!("Chờ/đã xác nhận: {}",done_count));
+        });
+        ui.small("Issue chỉ nên chuyển sang Đã xử lý sau khi thay đổi đã được đồng bộ; bước xác nhận cuối thuộc người điều phối.");
+    });
+
+    ui.separator();
+    egui::ScrollArea::vertical().max_height(460.0).show(ui,|ui| {
+        egui::Grid::new("coord_issues_professional").striped(true).show(ui,|ui| {
+            ui.strong("ID"); ui.strong("Ưu tiên"); ui.strong("Tầng"); ui.strong("Nguồn → Đích"); ui.strong("Đối tượng"); ui.strong("Nội dung cần xử lý"); ui.strong("Phụ trách"); ui.strong("Trạng thái"); ui.strong("Tác vụ"); ui.end_row();
+            for issue in &mut state.issues {
+                ui.label(format!("#{:04}",issue.id));
+                egui::ComboBox::from_id_salt(("coord_issue_priority",issue.id)).selected_text(issue.priority.label()).show_ui(ui,|ui| {
+                    for priority in [IssuePriority::P0,IssuePriority::P1,IssuePriority::P2] { ui.selectable_value(&mut issue.priority,priority,priority.label()); }
+                });
+                ui.label(state.floors.iter().find(|f|f.id==issue.floor_id).map(|f|f.name.as_str()).unwrap_or("?"));
+                ui.label(format!("{} → {}",issue.source_discipline.label(),issue.target_discipline.label()));
+                if let Some(handle)=issue.handle { if ui.button(handle.hex()).clicked(){ app.session.set_selection(vec![handle]); } } else { ui.label("-"); }
+                ui.add_sized([210.0,20.0],egui::TextEdit::singleline(&mut issue.description));
+                ui.add_sized([120.0,20.0],egui::TextEdit::singleline(&mut issue.assigned_to));
+                egui::ComboBox::from_id_salt(("coord_issue_status",issue.id)).selected_text(issue.status.label()).show_ui(ui,|ui| {
+                    for status in [IssueStatus::Open,IssueStatus::InProgress,IssueStatus::Resolved] { ui.selectable_value(&mut issue.status,status,status.label()); }
+                });
+                ui.horizontal(|ui| {
+                    if issue.status==IssueStatus::Open && ui.button("Nhận").clicked(){ issue.status=IssueStatus::InProgress; }
+                    if issue.status==IssueStatus::InProgress && ui.button("Hoàn tất").clicked(){ issue.status=IssueStatus::Resolved; }
+                    if issue.status==IssueStatus::Resolved && ui.button("Mở lại").clicked(){ issue.status=IssueStatus::Open; }
+                });
+                ui.end_row();
+            }
+        });
+    });
+}
+
+fn coordination_sync(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
+    let health=state.model_health(app);
+    ui.horizontal_wrapped(|ui| {
+        ui.strong("Trạng thái đồng bộ");
+        ui.label(format!("Local: {}",state.dirty_local_changes));
+        ui.label(format!("ChangeSet: {}",state.pending_changes.len()));
+        ui.label(format!("Khóa mềm: {}",state.leases.len()));
+        ui.label(format!("Xung đột: {}",state.conflicts.len()));
+        if state.connection==ConnectionMode::Online && state.dirty_local_changes>0 && ui.button("Đồng bộ ngay").clicked() { state.sync_pending_changes(); }
+    });
+    if state.connection==ConnectionMode::Offline { ui.colored_label(egui::Color32::YELLOW,"Đang offline: thay đổi chỉ nằm local cho đến khi kết nối server."); }
+    if health.conflicts==0 { ui.colored_label(egui::Color32::LIGHT_GREEN,"Không có xung đột revision."); }
+    else {
+        let conflicts=state.conflicts.clone();
+        egui::Grid::new("coord_sync_conflicts").striped(true).show(ui,|ui| {
+            ui.strong("Đối tượng"); ui.strong("Base"); ui.strong("Local"); ui.strong("Remote"); ui.strong("Xử lý"); ui.end_row();
+            for conflict in conflicts {
+                ui.label(conflict.handle.hex()); ui.label(conflict.base_revision.to_string()); ui.label(conflict.local_revision.to_string()); ui.label(conflict.remote_revision.to_string());
+                ui.horizontal(|ui| {
+                    if ui.button("Giữ của tôi").clicked(){ state.resolve_conflict(conflict.handle,ConflictResolution::KeepMine); }
+                    if ui.button("Nhận server").clicked(){ state.resolve_conflict(conflict.handle,ConflictResolution::AcceptTheirs); }
+                    if ui.button("Tạo bản sao").clicked(){ state.resolve_conflict(conflict.handle,ConflictResolution::DuplicateMine); }
+                }); ui.end_row();
+            }
+        });
+    }
+    ui.separator();
+    ui.collapsing("Nhật ký hoạt động",|ui| {
+        egui::ScrollArea::vertical().max_height(300.0).show(ui,|ui| {
+            for e in state.audit_log.iter().rev().take(200) { ui.label(format!("#{:04}  {}  {}  {}",e.sequence,e.account_id,e.action,e.detail)); }
+        });
+    });
+}
+
+fn coordination_access(ui: &mut egui::Ui, state: &mut State) {
+    ui.strong("Quyền truy cập & chia sẻ thiết kế");
+    ui.label("Phân biệt quyền xem dữ liệu của người khác và quyền sửa theo tầng/bộ môn. Mặc định nên chỉ cấp quyền tối thiểu cần thiết.");
+    ui.separator();
+    ui.group(|ui| {
+        ui.strong("Chia sẻ dữ liệu giữa các thành viên");
+        egui::Grid::new("coord_access_grants").striped(true).show(ui,|ui| {
+            ui.strong("Người xem"); ui.strong("Chủ dữ liệu"); ui.strong("Tầng"); ui.strong("Bộ môn"); ui.strong("Xem"); ui.strong("Sửa"); ui.end_row();
+            for grant in &mut state.share_grants {
+                ui.label(&grant.viewer_account_id); ui.label(&grant.owner_account_id);
+                ui.label(grant.floor_id.and_then(|id|state.floors.iter().find(|f|f.id==id).map(|f|f.name.clone())).unwrap_or_else(||"Tất cả".into()));
+                ui.label(grant.discipline.map(Discipline::label).unwrap_or("Tất cả")); ui.checkbox(&mut grant.can_view,""); ui.checkbox(&mut grant.can_edit,""); ui.end_row();
+            }
+        });
+    });
+    ui.add_space(8.0);
+    ui.group(|ui| {
+        ui.strong("Rule quyền theo scope");
+        egui::Grid::new("coord_access_rules").striped(true).show(ui,|ui| {
+            ui.strong("Tài khoản"); ui.strong("Tầng"); ui.strong("Bộ môn"); ui.strong("Xem"); ui.strong("Sửa"); ui.end_row();
+            for rule in &mut state.access_rules {
+                ui.label(&rule.account_id); ui.label(rule.floor_id.and_then(|id|state.floors.iter().find(|f|f.id==id).map(|f|f.name.clone())).unwrap_or_else(||"Tất cả".into()));
+                ui.label(rule.discipline.map(Discipline::label).unwrap_or("Tất cả")); ui.checkbox(&mut rule.can_view,""); ui.checkbox(&mut rule.can_edit,""); ui.end_row();
+            }
+        });
+    });
+}
+
 pub fn panel(ui: &mut egui::Ui, app: &mut cadcraft_ui_egui::CadApp, state: &mut State) {
-    ui.heading("BIM Cộng tác");
-    ui.label("Khung sơ bộ cho thiết kế nhiều bộ môn, nhiều tầng/cao độ và phối hợp online/offline trong cùng một file dự án.");
+    coordination_header(ui,app,state);
+    match state.ui_tab {
+        CollaborationTab::Overview=>{ coordination_overview(ui,app,state); return; }
+        CollaborationTab::Issues=>{ coordination_issues(ui,app,state); return; }
+        CollaborationTab::Sync=>{ coordination_sync(ui,app,state); return; }
+        CollaborationTab::Access=>{ coordination_access(ui,state); return; }
+        CollaborationTab::Workspace=>{}
+    }
+    ui.heading("Không gian phối hợp");
+    ui.label("Thiết lập scope làm việc, tầng/cao độ, viewport CAD, bộ môn tham chiếu và phiên thiết kế. Đây là khu vực cấu hình; công việc điều phối hằng ngày nằm ở Tổng quan và Issue / Clash.");
 
     {
         let health = state.model_health(app);
@@ -2308,6 +2811,24 @@ mod tests {
         let p = state.world_position(1, 10.0, 0.0, 0.0).unwrap();
         assert!(p[0].abs() < 1e-10);
         assert!((p[1] - 10.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn collaboration_center_opens_on_overview_with_task_oriented_tabs() {
+        let state=State::default();
+        assert_eq!(state.ui_tab,CollaborationTab::Overview);
+        assert_eq!(CollaborationTab::Overview.label(),"Tổng quan");
+        assert_eq!(CollaborationTab::Workspace.label(),"Không gian phối hợp");
+        assert_eq!(CollaborationTab::Issues.label(),"Issue / Clash");
+        assert_eq!(CollaborationTab::Sync.label(),"Đồng bộ");
+        assert_eq!(CollaborationTab::Access.label(),"Quyền truy cập");
+        let source=include_str!("bim_collab.rs");
+        assert!(source.contains("Quy trình phối hợp"));
+        assert!(source.contains("Danh sách Issue / Clash"));
+        assert!(source.contains("Tất cả ưu tiên"));
+        assert!(source.contains("Việc tiếp theo của tôi"));
+        assert!(source.contains("Chọn tất cả đang lọc"));
+        assert!(source.contains("Hoàn tất"));
     }
 
     #[test]

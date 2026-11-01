@@ -30,3 +30,7 @@ libc = "0.2"
 [dev-dependencies]
 # Real DXF files for the external reference tests (io is a lower layer).
 cadcraft-io = { workspace = true }
+[[test]]
+name = "it"
+path = "tests/it/main.rs"
+

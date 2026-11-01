@@ -389,6 +389,7 @@ impl CadApp {
         }
         if let Err(e) = &r {
             self.session.echo_error(e.clone());
+            self.set_status(e.clone());
         }
         r
     }
@@ -399,7 +400,9 @@ impl CadApp {
             return;
         }
         if let Err(e) = self.session.start(name) {
-            self.session.echo_error(e.to_string());
+            let e = e.to_string();
+            self.session.echo_error(e.clone());
+            self.set_status(e);
         }
     }
 
@@ -416,6 +419,7 @@ impl CadApp {
         }
         let e = self.session.cmdline(text).err()?.to_string();
         self.session.echo_error(e.clone());
+        self.set_status(e.clone());
         Some(e)
     }
 
@@ -980,6 +984,13 @@ mod tests {
         assert_eq!(entities, 1, "one command ran once, in the first pass");
         let reply = reply.wait(Duration::from_secs(1));
         assert_eq!(reply["ok"], true, "{reply}");
+    }
+
+    #[test]
+    fn command_errors_are_visible_in_the_status_bar_as_well_as_history() {
+        let mut a = app();
+        let error = a.run("definitely-not-a-command", json!({})).expect_err("unknown command must fail");
+        assert!(a.status.as_ref().is_some_and(|(shown, _)| shown == &error), "status must surface the same command error: {:?}", a.status);
     }
 
     /// A hidden logic-only tick runs no frame-only work: `ui_frames` stays 0 and fonts are not installed; a real `Ui` pass advances both.
