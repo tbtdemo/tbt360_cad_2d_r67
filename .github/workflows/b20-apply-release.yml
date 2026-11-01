@@ -26,7 +26,7 @@ jobs:
           cat .b20v3/chunk00 .b20v3/chunk01 .b20v3/chunk02 .b20v3/chunk03 .b20v3/chunk04 .b20v3/chunk05 .b20v3/chunk06 .b20v3/chunk07 .b20v3/chunk08 .b20v3/chunk09 .b20v3/chunk10 > /tmp/b20.b64
           test "$(wc -c < /tmp/b20.b64)" -eq 91100
           base64 -d /tmp/b20.b64 > /tmp/CAD360_R69_B20_CHANGED_FILES.tar.gz
-          echo "551800da54deeef77f5699f17e538a6885aadf81914196793efead8767e201f2  /tmp/CAD360_R69_B20_CHANGED_FILES.tar.gz" | sha256sum -c -
+          echo "551800da11af8b47bc00276cc2068a98a7ee1f2991645911bd52a1151a2d9192  /tmp/CAD360_R69_B20_CHANGED_FILES.tar.gz" | sha256sum -c -
           tar -tzf /tmp/CAD360_R69_B20_CHANGED_FILES.tar.gz
           tar -xzf /tmp/CAD360_R69_B20_CHANGED_FILES.tar.gz -C .
 
@@ -69,3 +69,5 @@ jobs:
           gh workflow run parallel-r66.yml --ref main
 
 # rerun-after-b20v3-exact-chunks
+
+# rerun-with-current-transport-sha
