@@ -1,0 +1,62 @@
+name: Apply CAD360 0.68.0 Batch 10 Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/apply-b10-release.yml'
+      - '.b10-release-trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rebuild and verify Batch 10 delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .b10-release/part00 .b10-release/part01 .b10-release/part02 .b10-release/part03 .b10-release/part04 .b10-release/part05 .b10-release/part06 .b10-release/part07 > /tmp/b10.b64
+          base64 -d /tmp/b10.b64 > /tmp/CAD360_B10_DELTA_068.tar.xz
+          echo "3327f25740f30228d01234f72660576792d04df5917917eb1a9ec6429bc79c5b  /tmp/CAD360_B10_DELTA_068.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/CAD360_B10_DELTA_068.tar.xz -C .
+
+      - name: Run R67/R68 static preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          python SOURCE_CAD_R65/scripts/r67_static_gate.py
+
+      - name: Verify release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'CAD360_RELEASE_VERSION = "0.68.0"' SOURCE_CAD_R65/.cargo/config.toml
+          grep -F '#define MyAppVersion "0.68.0"' installer/TBT360_CAD_R65.iss
+          grep -F '0.68.0' SOURCE_CAD_R65/apps/cadcraft/build.rs
+          grep -F 'BimCollab' SOURCE_CAD_R65/apps/cadcraft/src/main.rs
+          grep -F 'Phối hợp thiết kế' SOURCE_CAD_R65/apps/cadcraft/src/bim_collab.rs
+
+      - name: Commit Batch 10 release source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .b10-release .b10-release-trigger
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No source changes to commit."
+            exit 0
+          fi
+          git commit -m "release: CAD360 0.68.0 batch 10 coordination integration"
+          git push origin HEAD:main
