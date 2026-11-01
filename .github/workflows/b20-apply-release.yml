@@ -56,23 +56,18 @@ jobs:
           git add SOURCE_CAD_R65/crates/engine/src/cmd/clipboard.rs
           git add SOURCE_CAD_R65/scripts/r67_static_gate.py
           git add installer/TBT360_CAD_R65.iss
-          git add .github/workflows/parallel-r66.yml
           git add SHA256SUMS.txt
           git rm -rf --ignore-unmatch .b10-release .b20-release .b20v2 .b20v3
-          git rm --ignore-unmatch .github/workflows/b20-apply-release.yml
           git commit -m "release: CAD360 0.69.0 batch 20 BIM coordination"
           git push origin HEAD:main
 
-      - name: Trigger Windows installer build
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh workflow run parallel-r66.yml --ref main
+      - name: Windows build handoff
+        run: echo "Source committed; workflow update/build will be triggered by release controller."
 
 # rerun-after-b20v3-exact-chunks
 
 # rerun-with-current-transport-sha
 
 # rerun-with-clipboard-baseline
+
+# rerun-with-workflow-write-split
