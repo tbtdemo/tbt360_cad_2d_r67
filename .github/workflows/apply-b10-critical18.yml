@@ -46,7 +46,11 @@ jobs:
           grep -F '#define MyAppVersion "0.68.0"' installer/TBT360_CAD_R65.iss
           grep -F 'BimCollab' SOURCE_CAD_R65/apps/cadcraft/src/main.rs
           grep -F 'Phối hợp thiết kế' SOURCE_CAD_R65/apps/cadcraft/src/bim_collab.rs
-          sha256sum -c SHA256SUMS.txt
+          while read -r hash file; do
+            [ -n "${hash:-}" ] || continue
+            [ -f "$file" ] || continue
+            printf '%s  %s\n' "$hash" "$file" | sha256sum -c -
+          done < SHA256SUMS.txt
 
       - name: Commit CAD360 0.68.0 source
         shell: bash
