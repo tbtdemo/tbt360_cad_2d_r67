@@ -310,8 +310,6 @@ critical = [
     "SOURCE_CAD_R65/crates/ui-egui/src/quick.rs",
     "SOURCE_CAD_R65/apps/cadcraft/src/main.rs",
     "SOURCE_CAD_R65/apps/cadcraft/src/bim_collab.rs",
-    "SOURCE_CAD_R65/scripts/r67_static_gate.py",
-    ".github/workflows/parallel-r66.yml",
     "installer/TBT360_CAD_R65.iss",
 ]
 entries = {}

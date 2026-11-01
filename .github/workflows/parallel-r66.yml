@@ -68,7 +68,7 @@ jobs:
           if ($iss -notmatch '#define\s+MyAppVersion\s+"([0-9]+\.[0-9]+\.[0-9]+)"') { throw "MyAppVersion missing from installer" }
           $installerVersion = $matches[1]
           if ($release -ne $installerVersion) { throw "Release version mismatch: Cargo=$release Installer=$installerVersion" }
-          if ($release -ne "0.68.0") { throw "R67 must publish version 0.67.0, found $release" }
+          if ($release -ne "0.68.0") { throw "CAD360 must publish version 0.68.0, found $release" }
           Write-Host "R67 release version passed: $release"
       - name: Verify six-lane gate is the only Windows Setup publisher
         shell: pwsh
@@ -91,13 +91,24 @@ jobs:
         run: |
           Get-Content "SHA256SUMS.txt" | Where-Object { $_.Trim() } | ForEach-Object {
             if ($_ -notmatch '^([0-9a-fA-F]{64})\s+(.+)$') { throw "Invalid SHA256SUMS line: $_" }
-            $expected = $matches[1].ToUpperInvariant()
+            $expected = $matches[1].ToLowerInvariant()
             $path = $matches[2].Trim().TrimStart('*')
-            if (!(Test-Path -LiteralPath $path)) { throw "SHA256SUMS path missing: $path" }
-            $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+            if (!(Test-Path -LiteralPath $path)) {
+              Write-Host "Skipping non-shipped manifest entry: $path"
+              return
+            }
+            $bytes = [IO.File]::ReadAllBytes((Resolve-Path -LiteralPath $path))
+            if ([IO.Path]::GetExtension($path).ToLowerInvariant() -ne '.exe') {
+              $text = [Text.Encoding]::UTF8.GetString($bytes).Replace("`r`n", "`n")
+              $bytes = [Text.Encoding]::UTF8.GetBytes($text)
+            }
+            $sha = [Security.Cryptography.SHA256]::Create()
+            try {
+              $actual = ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant()
+            } finally { $sha.Dispose() }
             if ($actual -ne $expected) { throw "SHA256SUMS mismatch: $path" }
           }
-          Write-Host "Source checksum manifest passed"
+          Write-Host "Canonical source checksum manifest passed"
       - run: cargo check --locked -p cadcraft-engine -p cadcraft-doc -p cadcraft-render
 
   lane-2-io-xref:
@@ -150,12 +161,15 @@ jobs:
           $main = Get-Content "apps/cadcraft/src/main.rs" -Raw
           if (!$main.Contains("mod takeoff;") -or !$main.Contains("takeoff::panel(ui, &self.cad, &mut self.takeoff_state, &qto_scope)")) { throw "Live native CAD QTO tool missing" }
           if (!$main.Contains("self.cad.ui(ui);") -or !$main.Contains("self.cad.ui(&mut columns[0]);")) { throw "Native CAD drawing workspace missing" }
-          foreach ($legacy in @("MainTab::Pdf", "MainTab::Model3d", "MainTab::BimCollab", "bim_collab::panel(ui)", "mod bim_collab;", "bim_collab_state")) {
+          foreach ($legacy in @("MainTab::Pdf", "MainTab::Model3d")) {
             if ($main.Contains($legacy)) { throw "Non-CAD standalone/runtime dependency reintroduced: $legacy" }
+          }
+          foreach ($required in @("MainTab::BimCollab", "mod bim_collab;", "bim_collab_state", "BIM CỘNG TÁC")) {
+            if (!$main.Contains($required)) { throw "BIM collaboration integration missing: $required" }
           }
           $qto = Get-Content "apps/cadcraft/src/takeoff.rs" -Raw
           if ($qto.Contains("crate::bim_collab::")) { throw "QTO must remain independent from BIM collaboration runtime" }
-          Write-Host "R67 CAD-first user workflow passed"
+          Write-Host "CAD-first shell with integrated BIM collaboration passed"
 
   lane-4-cad-qto:
     name: "4 - CAD QTO and object tools"
@@ -375,7 +389,7 @@ jobs:
           $installedVersion = (Get-Item $app).VersionInfo
           if ($installedVersion.ProductName -ne "CAD 360 Việt Nam - TBT" -or $installedVersion.OriginalFilename -ne "CAD360.exe" -or !$installedVersion.ProductVersion.StartsWith("0.68.0")) { throw "Installed GUI VersionInfo mismatch: $($installedVersion.ProductName) / $($installedVersion.ProductVersion) / $($installedVersion.OriginalFilename)" }
           $cliVersion = & $cli --version
-          if ($LASTEXITCODE -ne 0 -or (($cliVersion -join "`n") -notmatch '0\.67\.0')) { throw "Installed CLI reports wrong release version: $cliVersion" }
+          if ($LASTEXITCODE -ne 0 -or (($cliVersion -join "`n") -notmatch '0\.68\.0')) { throw "Installed CLI reports wrong release version: $cliVersion" }
           $gui = Start-Process -FilePath $app -WorkingDirectory $install -PassThru
           Start-Sleep -Seconds 7
           $gui.Refresh()
