@@ -1,0 +1,87 @@
+name: Reconstruct R67 and Apply CAD360 0.68.0
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/reconstruct-r67-and-apply-b10.yml'
+      - '.b10-reconstruct-trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  reconstruct-and-apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Recover original R67 bootstrap chunks from Git history
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/r67-chunks
+          for i in $(seq -w 0 11); do
+            path=".r67-bootstrap/part${i}"
+            commit="$(git log --all --format=%H --diff-filter=A -- "$path" | head -n 1)"
+            test -n "$commit" || { echo "::error::Cannot locate historical $path"; exit 1; }
+            git show "${commit}:${path}" > "/tmp/r67-chunks/part${i}"
+            test -s "/tmp/r67-chunks/part${i}"
+          done
+          cat /tmp/r67-chunks/part{00..11} | base64 --decode > /tmp/CAD360_R67_BOOTSTRAP_DELTA_MIN.tar.xz
+          echo "803d47d1e16d61caa15961fc373e7a39b1b3cc5de928291fd91287ba87bca2df  /tmp/CAD360_R67_BOOTSTRAP_DELTA_MIN.tar.xz" | sha256sum -c -
+          mkdir -p /tmp/r67-overlay
+          tar -xJf /tmp/CAD360_R67_BOOTSTRAP_DELTA_MIN.tar.xz -C /tmp/r67-overlay
+
+      - name: Restore complete R67 hardened source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -a --exclude='.git/' --exclude='.github/workflows/' --exclude='.b10-release/' /tmp/r67-overlay/ ./
+          printf '%s\n'             'release=CAD360_R67'             'delta_sha256=803d47d1e16d61caa15961fc373e7a39b1b3cc5de928291fd91287ba87bca2df'             'baseline=9cab229bf784c7a3103c90b138bd7c7c3ede390f' > .r67-overlay-applied
+
+      - name: Rebuild and verify Batch 10 0.68.0 delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq -w 0 7); do
+            test -s ".b10-release/part${i}" || { echo "::error::Missing .b10-release/part${i}"; exit 1; }
+          done
+          cat .b10-release/part{00..07} | base64 --decode > /tmp/CAD360_B10_DELTA_068.tar.xz
+          echo "3327f25740f30228d01234f72660576792d04df5917917eb1a9ec6429bc79c5b  /tmp/CAD360_B10_DELTA_068.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/CAD360_B10_DELTA_068.tar.xz -C .
+
+      - name: Run CAD360 static release gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python SOURCE_CAD_R65/scripts/r67_static_gate.py
+
+      - name: Verify 0.68.0 and BIM shell integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'CAD360_RELEASE_VERSION = "0.68.0"' SOURCE_CAD_R65/.cargo/config.toml
+          grep -F '#define MyAppVersion "0.68.0"' installer/TBT360_CAD_R65.iss
+          grep -F 'BimCollab' SOURCE_CAD_R65/apps/cadcraft/src/main.rs
+          grep -F 'Phối hợp thiết kế' SOURCE_CAD_R65/apps/cadcraft/src/bim_collab.rs
+
+      - name: Commit reconstructed R68 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .b10-release .b10-release-trigger .b10-critical .b10-reconstruct-trigger
+          git config user.name "CAD360 Release Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "release: CAD360 0.68.0 batch 10 hardened coordination"
+          git push origin HEAD:main
