@@ -326,7 +326,11 @@ for rel in critical:
     require(rel in entries, f"SHA256SUMS.txt: missing critical path {rel}")
     path = ROOT / rel
     if path.exists() and rel in entries:
-        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        # Git for Windows may materialize text files as CRLF.  The manifest is
+        # generated from canonical LF source, so normalize line endings before
+        # hashing to make this release gate deterministic on Linux and Windows.
+        data = path.read_bytes().replace(b"\r\n", b"\n")
+        actual = hashlib.sha256(data).hexdigest()
         require(actual == entries[rel], f"SHA256SUMS.txt: stale hash for {rel}")
 
 # Prevent old compile regressions from silently coming back.
