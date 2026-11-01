@@ -1,10 +1,10 @@
-name: Diagnose CAD360 Undo State v4
+name: Diagnose CAD360 Undo State v4.1
 
 on:
   push:
     branches: [ main ]
     paths:
-      - '.fix-clipboard-v4'
+      - '.github/workflows/fix-clipboard-entitystore-v4.yml'
 
 jobs:
   diagnose:
