@@ -68,7 +68,7 @@ jobs:
           if ($iss -notmatch '#define\s+MyAppVersion\s+"([0-9]+\.[0-9]+\.[0-9]+)"') { throw "MyAppVersion missing from installer" }
           $installerVersion = $matches[1]
           if ($release -ne $installerVersion) { throw "Release version mismatch: Cargo=$release Installer=$installerVersion" }
-          if ($release -ne "0.68.0") { throw "CAD360 must publish version 0.68.0, found $release" }
+          if ($release -ne "0.69.0") { throw "CAD360 must publish version 0.69.0, found $release" }
           Write-Host "R67 release version passed: $release"
       - name: Verify six-lane gate is the only Windows Setup publisher
         shell: pwsh
@@ -387,7 +387,7 @@ jobs:
           if ((Get-FileHash $app -Algorithm SHA256).Hash -ne $sourceHash) { throw "Installed GUI differs from release build" }
           if ((Get-FileHash $cli -Algorithm SHA256).Hash -ne $sourceCliHash) { throw "Installed CLI differs from release build" }
           $installedVersion = (Get-Item $app).VersionInfo
-          if ($installedVersion.ProductName -ne "CAD 360 Việt Nam - TBT" -or $installedVersion.OriginalFilename -ne "CAD360.exe" -or !$installedVersion.ProductVersion.StartsWith("0.68.0")) { throw "Installed GUI VersionInfo mismatch: $($installedVersion.ProductName) / $($installedVersion.ProductVersion) / $($installedVersion.OriginalFilename)" }
+          if ($installedVersion.ProductName -ne "CAD 360 Việt Nam - TBT" -or $installedVersion.OriginalFilename -ne "CAD360.exe" -or !$installedVersion.ProductVersion.StartsWith("0.69.0")) { throw "Installed GUI VersionInfo mismatch: $($installedVersion.ProductName) / $($installedVersion.ProductVersion) / $($installedVersion.OriginalFilename)" }
           $cliVersion = & $cli --version
           if ($LASTEXITCODE -ne 0 -or (($cliVersion -join "`n") -notmatch '0\.68\.0')) { throw "Installed CLI reports wrong release version: $cliVersion" }
           $gui = Start-Process -FilePath $app -WorkingDirectory $install -PassThru
@@ -408,4 +408,3 @@ jobs:
             dist/CAD360_VietNam_TBT_Setup.exe
             dist/CAD360_VietNam_TBT_Setup.exe.sha256
           if-no-files-found: error
-# CAD360 0.68.0 gated release
