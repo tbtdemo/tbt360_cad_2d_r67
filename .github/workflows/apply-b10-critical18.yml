@@ -1,0 +1,65 @@
+name: Apply CAD360 0.68.0 Critical Overlay
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/apply-b10-critical18.yml'
+      - '.b10-critical18-trigger'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Rebuild critical overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq -w 0 17); do
+            test -s ".b10-critical18/part${i}" || { echo "::error::Missing part${i}"; exit 1; }
+          done
+          cat .b10-critical18/part{00..17} | base64 --decode > /tmp/CAD360_B10_CRITICAL_OVERLAY_068.tar.xz
+          echo "52a1fe826c9ea4349cfd9ee694baa9b1e3da91c1780107d02b3799a0c3be4927  /tmp/CAD360_B10_CRITICAL_OVERLAY_068.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/CAD360_B10_CRITICAL_OVERLAY_068.tar.xz -C .
+
+      - name: Run static release gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python SOURCE_CAD_R65/scripts/r67_static_gate.py
+
+      - name: Verify release identity and BIM integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'CAD360_RELEASE_VERSION = "0.68.0"' SOURCE_CAD_R65/.cargo/config.toml
+          grep -F '#define MyAppVersion "0.68.0"' installer/TBT360_CAD_R65.iss
+          grep -F 'BimCollab' SOURCE_CAD_R65/apps/cadcraft/src/main.rs
+          grep -F 'Phối hợp thiết kế' SOURCE_CAD_R65/apps/cadcraft/src/bim_collab.rs
+          sha256sum -c SHA256SUMS.txt
+
+      - name: Commit CAD360 0.68.0 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .b10-critical .b10-critical18 .b10-release
+          rm -f .b10-critical18-trigger .b10-release-trigger .b10-reconstruct-trigger
+          git config user.name "CAD360 Release Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No source changes to commit."
+            exit 0
+          fi
+          git commit -m "release: CAD360 0.68.0 batch 10 coordination"
+          git push origin HEAD:main
