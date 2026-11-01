@@ -67,3 +67,5 @@ jobs:
         run: |
           set -euo pipefail
           gh workflow run parallel-r66.yml --ref main
+
+# rerun-after-b20v3-exact-chunks
