@@ -1,0 +1,120 @@
+name: CAD360 R68 Build EXE
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.b10-release/run-r68'
+
+concurrency:
+  group: cad360-r68-exe
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      CADCRAFT_REQUIRE_WINRES: "1"
+      RUST_BACKTRACE: "1"
+      RUSTFLAGS: -C target-feature=+crt-static
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify and apply exact 0.68.0 patch
+        shell: pwsh
+        run: |
+          $patch = ".b10-release/CAD360_R68_BUILD_PATCH.patch"
+          if (!(Test-Path $patch)) { throw "R68 patch missing" }
+          $actual = (Get-FileHash $patch -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne "717b5ba7ebac1ffe107d63d9923900ba8ae987b7ec62ff6f588d2b86dc87af35") { throw "R68 patch SHA256 mismatch: $actual" }
+          git apply --check --whitespace=nowarn --include="SOURCE_CAD_R65/**" --include="installer/**" --include="SHA256SUMS.txt" $patch
+          if ($LASTEXITCODE -ne 0) { throw "R68 patch precheck failed" }
+          git apply --whitespace=nowarn --include="SOURCE_CAD_R65/**" --include="installer/**" --include="SHA256SUMS.txt" $patch
+          if ($LASTEXITCODE -ne 0) { throw "R68 patch apply failed" }
+          Write-Host "R68 patch applied"
+
+      - name: Static gate
+        working-directory: SOURCE_CAD_R65
+        run: python scripts/r67_static_gate.py
+
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: SOURCE_CAD_R65
+
+      - name: Build release GUI and CLI
+        working-directory: SOURCE_CAD_R65
+        run: cargo build --release --locked -p cadcraft -p cadcraft-cli --target x86_64-pc-windows-msvc
+
+      - name: Assemble portable
+        shell: pwsh
+        run: |
+          $bin = "SOURCE_CAD_R65/target/x86_64-pc-windows-msvc/release"
+          $out = "portable/CAD360_VietNam_TBT_R68_Win64"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item "$bin/cadcraft.exe" "$out/CAD360.exe"
+          Copy-Item "$bin/cadcraft-cli.exe" "$out/cadcraft-cli.exe"
+          $v = (Get-Item "$out/CAD360.exe").VersionInfo
+          if ($v.ProductName -ne "CAD 360 Việt Nam - TBT") { throw "ProductName mismatch: $($v.ProductName)" }
+          if (!$v.ProductVersion.StartsWith("0.68.0")) { throw "ProductVersion mismatch: $($v.ProductVersion)" }
+          if ($v.OriginalFilename -ne "CAD360.exe") { throw "OriginalFilename mismatch: $($v.OriginalFilename)" }
+          $cliVersion = & "$out/cadcraft-cli.exe" --version
+          if ($LASTEXITCODE -ne 0 -or (($cliVersion -join "`n") -notmatch '0\.68\.0')) { throw "CLI version mismatch: $cliVersion" }
+          Get-ChildItem $out -Filter "*.exe" | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash)  $($_.Name)" } | Set-Content "$out/SHA256SUMS.txt"
+          "CAD360 Viet Nam - TBT 0.68.0 Portable x64. Run CAD360.exe." | Set-Content "$out/README.txt" -Encoding UTF8
+          Compress-Archive -Path "$out/*" -DestinationPath "portable/CAD360_R68_Portable_Win64.zip" -CompressionLevel Optimal -Force
+
+      - name: Portable launch smoke
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "CAD360_R68_Portable_Smoke"
+          if (Test-Path $root) { Remove-Item $root -Recurse -Force }
+          Expand-Archive "portable/CAD360_R68_Portable_Win64.zip" $root -Force
+          $app = Join-Path $root "CAD360.exe"
+          if (!(Test-Path $app)) { throw "CAD360.exe missing from portable" }
+          $p = Start-Process -FilePath $app -WorkingDirectory $root -PassThru
+          Start-Sleep -Seconds 8
+          $p.Refresh()
+          if ($p.HasExited) { throw "CAD360.exe exited early: $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+          $p.WaitForExit(10000) | Out-Null
+          Write-Host "Portable launch smoke passed"
+
+      - name: Build Setup EXE
+        shell: pwsh
+        run: |
+          $src = "SOURCE_CAD_R65/target/x86_64-pc-windows-msvc/release"
+          $dst = "SOURCE_CAD_R65/target/release"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item "$src/cadcraft.exe" "$dst/cadcraft.exe" -Force
+          Copy-Item "$src/cadcraft-cli.exe" "$dst/cadcraft-cli.exe" -Force
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6/ISCC.exe"
+          if (!(Test-Path $iscc)) { choco install innosetup --yes --no-progress }
+          if (!(Test-Path $iscc)) { throw "ISCC.exe not found" }
+          & $iscc "/Qp" "installer/TBT360_CAD_R65.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed" }
+          if (!(Test-Path "dist/CAD360_VietNam_TBT_Setup.exe")) { throw "Setup EXE missing" }
+          $h=(Get-FileHash "dist/CAD360_VietNam_TBT_Setup.exe" -Algorithm SHA256).Hash
+          "$h  CAD360_VietNam_TBT_Setup.exe" | Set-Content "dist/CAD360_VietNam_TBT_Setup.exe.sha256" -Encoding ascii
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_R68_Portable_Win64
+          path: portable/CAD360_R68_Portable_Win64.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CAD360_R68_Setup_EXE
+          path: |
+            dist/CAD360_VietNam_TBT_Setup.exe
+            dist/CAD360_VietNam_TBT_Setup.exe.sha256
+          if-no-files-found: error
