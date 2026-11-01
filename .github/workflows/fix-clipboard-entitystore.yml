@@ -1,0 +1,68 @@
+name: Fix CAD360 Clipboard EntityStore Compile
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.ci-triggers/fix-clipboard-entitystore'
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-check:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply compile fix
+        shell: pwsh
+        run: |
+          $path = "SOURCE_CAD_R65/crates/engine/src/cmd/clipboard.rs"
+          $text = Get-Content $path -Raw
+          $count = ([regex]::Matches($text, 'for e in &b\.entities \{')).Count
+          if ($count -ne 2) { throw "Expected exactly 2 EntityStore loops, found $count" }
+          $text = $text.Replace('for e in &b.entities {', 'for e in b.entities.iter() {')
+          Set-Content -Path $path -Value $text -Encoding utf8NoBOM
+
+          $hash = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest = "SHA256SUMS.txt"
+          $lines = Get-Content $manifest
+          $found = $false
+          $lines = $lines | ForEach-Object {
+            if ($_ -match 'SOURCE_CAD_R65/crates/engine/src/cmd/clipboard\.rs$') {
+              $found = $true
+              "$hash  SOURCE_CAD_R65/crates/engine/src/cmd/clipboard.rs"
+            } else { $_ }
+          }
+          if (-not $found) { throw "clipboard.rs checksum entry not found" }
+          Set-Content -Path $manifest -Value $lines -Encoding utf8NoBOM
+          Write-Host "clipboard sha256=$hash"
+
+      - name: Static gate
+        shell: pwsh
+        run: python SOURCE_CAD_R65/scripts/r67_static_gate.py
+
+      - name: Install Rust
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal
+          rustup default 1.95.0
+
+      - name: Check engine
+        shell: pwsh
+        working-directory: SOURCE_CAD_R65
+        run: cargo check --locked -p cadcraft-engine
+
+      - name: Commit fix
+        shell: pwsh
+        run: |
+          git config user.name "CAD360 CI Fix Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add SOURCE_CAD_R65/crates/engine/src/cmd/clipboard.rs SHA256SUMS.txt
+          git commit -m "fix: iterate clipboard EntityStore correctly"
+          git push origin HEAD:main
