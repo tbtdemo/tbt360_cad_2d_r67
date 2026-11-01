@@ -1,0 +1,2 @@
+CAD360 0.68.0
+validation after clipboard EntityStore compile fix
